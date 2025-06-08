@@ -19,9 +19,9 @@ geoalchemy2==0.14.2
 pydantic==2.5.0
 pydantic-settings==2.1.0
 
-# Task queue (for later)
+# Task queue
 celery==5.3.4
-redis==5.0.1
+redis==4.5.4
 
 # Development and testing
 pytest==7.4.3

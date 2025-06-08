@@ -261,8 +261,8 @@ async def import_geometries(
         )
         
         # Update last check time
-        from datetime import datetime
-        dataset.last_check_at = datetime.utcnow()
+        from datetime import datetime, timezone
+        dataset.last_check_at = datetime.now(timezone.utc)
         await db.commit()
         
         return response

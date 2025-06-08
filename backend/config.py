@@ -45,7 +45,7 @@ class Settings(BaseSettings):
         description="Redis URL for Celery broker"
     )
     CELERY_TASK_ALWAYS_EAGER: bool = Field(
-        default=False,
+        default=True,
         description="Execute Celery tasks synchronously (useful for testing)"
     )
     

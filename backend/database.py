@@ -6,12 +6,13 @@ Async PostgreSQL with PostGIS support using SQLAlchemy
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import String, DateTime, Integer, Text, Boolean, JSON, Index
+from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.dialects.postgresql import UUID
 from geoalchemy2 import Geometry
 from sqlalchemy import text 
 from typing import AsyncGenerator
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import settings
 
@@ -61,17 +62,17 @@ class Dataset(Base):
     
     # Connection health monitoring
     connection_status: Mapped[str] = mapped_column(String(20), default="unknown")  # unknown, success, failed, testing
-    last_connection_test: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    last_connection_test: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     connection_error: Mapped[str] = mapped_column(Text, nullable=True)
     
     # Metadata
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
     # Monitoring settings
     check_interval_minutes: Mapped[int] = mapped_column(Integer, default=60)
-    last_check_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    last_check_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     
     __table_args__ = (
         Index("idx_datasets_name", "name"),
@@ -99,7 +100,7 @@ class GeometrySnapshot(Base):
     attributes: Mapped[dict] = mapped_column(JSON, nullable=True)
     
     # Metadata
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     __table_args__ = (
         Index("idx_geometry_snapshots_dataset", "dataset_id"),
@@ -131,11 +132,11 @@ class GeometryDiff(Base):
     
     # Status tracking
     status: Mapped[str] = mapped_column(String(20), default="PENDING")  # PENDING, ACCEPTED, REJECTED
-    reviewed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    reviewed_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     reviewed_by: Mapped[str] = mapped_column(String(255), nullable=True)
     
     # Metadata
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     __table_args__ = (
         Index("idx_geometry_diffs_dataset", "dataset_id"),
@@ -160,7 +161,7 @@ class SpatialCheck(Base):
     error_details: Mapped[dict] = mapped_column(JSON, nullable=True)
     
     # Metadata
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     __table_args__ = (
         Index("idx_spatial_checks_dataset", "dataset_id"),

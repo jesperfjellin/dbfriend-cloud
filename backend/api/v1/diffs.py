@@ -142,9 +142,9 @@ async def review_diff(
         )
     
     # Update diff status
-    from datetime import datetime
+    from datetime import datetime, timezone
     diff.status = review.status
-    diff.reviewed_at = datetime.utcnow()
+    diff.reviewed_at = datetime.now(timezone.utc)
     diff.reviewed_by = review.reviewed_by
     
     await db.commit()
@@ -192,12 +192,12 @@ async def batch_review_diffs(
         )
     
     # Update all diffs
-    from datetime import datetime
+    from datetime import datetime, timezone
     updated_count = 0
     
     for diff in diffs:
         diff.status = status
-        diff.reviewed_at = datetime.utcnow()
+        diff.reviewed_at = datetime.now(timezone.utc)
         diff.reviewed_by = batch.reviewed_by
         updated_count += 1
     
