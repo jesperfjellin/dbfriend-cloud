@@ -10,14 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc
 from sqlalchemy.orm import selectinload
 
-from ...database import get_db, GeometryDiff, GeometrySnapshot
-from ...models import (
+from database import get_db, GeometryDiff, GeometrySnapshot
+from models import (
     GeometryDiff as GeometryDiffModel,
     GeometryDiffDetails,
     DiffReview,
     DiffBatch
 )
-from ...services.geometry_service import GeometryService
+from services.geometry_service import GeometryService
 
 router = APIRouter()
 

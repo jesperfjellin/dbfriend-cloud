@@ -19,9 +19,9 @@ import pandas as pd
 from shapely.geometry import shape
 from shapely import wkb
 
-from ..database import GeometrySnapshot, GeometryDiff, SpatialCheck, Dataset
-from ..models import GeometryImportResponse
-from ..config import settings
+from database import GeometrySnapshot, GeometryDiff, SpatialCheck, Dataset
+from models import GeometryImportResponse
+from config import settings
 
 logger = logging.getLogger("dbfriend-cloud.geometry_service")
 

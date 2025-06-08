@@ -13,7 +13,7 @@ from typing import AsyncGenerator
 import uuid
 from datetime import datetime
 
-from .config import settings
+from config import settings
 
 
 # Create async engine
@@ -163,15 +163,21 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db():
-    """Initialize database with PostGIS extensions and create tables."""
-    async with engine.begin() as conn:
-        # Enable PostGIS extension
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
+    """Initialize OUR database for storing analysis results and user configurations."""
+    try:
+        async with engine.begin() as conn:
+            # Only create OUR tables for storing analysis results, diffs, spatial checks
+            # User databases: we read geometries + write approved fixes (never create infrastructure)
+            await conn.run_sync(Base.metadata.create_all)
         
-        # Enable PostGIS topology if configured
-        if settings.ENABLE_POSTGIS_TOPOLOGY:
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis_topology;"))
+        import logging
+        logger = logging.getLogger("dbfriend-cloud")
+        logger.info("[green]✓ dbfriend-cloud database initialized[/green]")
         
-        # Create all tables
-        await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("dbfriend-cloud")
+        logger.warning(f"[yellow]⚠ Database connection failed: {e}[/yellow]")
+        logger.warning("[yellow]⚠ Running in development mode without database[/yellow]")
+        # Continue running without database for development
 

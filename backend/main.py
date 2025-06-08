@@ -14,9 +14,9 @@ from rich.console import Console
 from rich.logging import RichHandler
 import logging
 
-from .config import settings
-from .database import engine, init_db
-from .api.v1 import api_router
+from config import settings
+from database import engine, init_db
+from api.v1 import api_router
 
 # Initialize rich console for logging
 console = Console()
@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("[cyan]🚀 Starting dbfriend-cloud...[/cyan]")
     await init_db()
-    logger.info("[green]✓ Database initialized[/green]")
+    logger.info("[green]✓ dbfriend-cloud ready[/green]")
     
     yield
     

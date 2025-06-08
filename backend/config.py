@@ -29,9 +29,9 @@ class Settings(BaseSettings):
         description="PostgreSQL database URL with asyncpg driver"
     )
     
-    # PostGIS-specific settings
-    POSTGIS_VERSION: str = Field(default="3.4", description="PostGIS version")
-    ENABLE_POSTGIS_TOPOLOGY: bool = Field(default=True, description="Enable PostGIS topology extension")
+    # Note: We don't manage user PostGIS infrastructure (no extensions/schemas/tables)
+    # We connect with read/write to analyze data and commit approved fixes
+    # PostGIS extensions should already be enabled in user databases
     
     # CORS settings
     ALLOWED_ORIGINS: List[str] = Field(

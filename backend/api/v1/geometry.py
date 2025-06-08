@@ -9,9 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 
-from ...database import get_db, GeometrySnapshot, SpatialCheck
-from ...models import SpatialCheck as SpatialCheckModel
-from ...services.geometry_service import GeometryService
+from database import get_db, GeometrySnapshot, SpatialCheck
+from models import SpatialCheck as SpatialCheckModel
+from services.geometry_service import GeometryService
 
 router = APIRouter()
 
