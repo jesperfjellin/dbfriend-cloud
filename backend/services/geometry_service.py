@@ -54,14 +54,14 @@ class GeometryService:
         composite_string = f"geom:{geometry_hash}|attrs:{attributes_hash}"
         return hashlib.md5(composite_string.encode('utf-8')).hexdigest()
     
-    async def import_geometries_from_external_source(
+    async def monitor_dataset_changes(
         self, 
         dataset: Dataset,
         force_reimport: bool = False
     ) -> GeometryImportResponse:
         """
-        Import geometries from external PostgreSQL source and detect changes.
-        This is the core diff detection functionality.
+        Monitor dataset for CHANGES only - separate from quality checks.
+        Only flags geometries that pass the "problematic" threshold.
         """
         start_time = datetime.now(timezone.utc)
         
@@ -77,7 +77,9 @@ class GeometryService:
                     SELECT 
                         *,
                         ST_AsBinary({dataset.geometry_column}) as geometry_wkb,
-                        MD5(ST_AsBinary({dataset.geometry_column})) as geometry_hash
+                        MD5(ST_AsBinary({dataset.geometry_column})) as geometry_hash,
+                        ST_IsValid({dataset.geometry_column}) as is_valid,
+                        ST_Area({dataset.geometry_column}) as geom_area
                     FROM {dataset.schema_name}.{dataset.table_name}
                     WHERE {dataset.geometry_column} IS NOT NULL
                 """
@@ -92,18 +94,31 @@ class GeometryService:
                 existing_snapshots = await self._get_existing_snapshots(dataset.id)
                 existing_hashes = {snap.composite_hash: snap for snap in existing_snapshots}
                 
+                logger.info(f"Dataset {dataset.id}: Found {len(existing_snapshots)} existing snapshots")
+                
                 logger.info(f"Found {len(external_rows)} geometries in external database, {len(existing_snapshots)} existing snapshots")
+                logger.debug(f"Existing composite hashes: {len(existing_hashes)} unique")
+                
+                # Check if this is the first time monitoring this dataset (baseline establishment)
+                is_baseline_run = len(existing_snapshots) == 0
+                
+                if is_baseline_run:
+                    logger.info(f"📊 BASELINE RUN: Establishing baseline for {len(external_rows)} geometries (no diffs will be created)")
+                else:
+                    logger.info(f"🔍 CHANGE DETECTION: Comparing {len(external_rows)} current vs {len(existing_snapshots)} baseline geometries")
                 
                 # Process each external geometry
                 for row in external_rows:
                     # Extract geometry and attributes
                     geometry_wkb = row['geometry_wkb']
                     geometry_hash = row['geometry_hash']
+                    is_valid = row['is_valid']
+                    geom_area = row['geom_area'] or 0
                     
                     # Build attributes dict (exclude geometry columns)
                     attributes = {}
                     for key, value in row.items():
-                        if key not in [dataset.geometry_column, 'geometry_wkb', 'geometry_hash']:
+                        if key not in [dataset.geometry_column, 'geometry_wkb', 'geometry_hash', 'is_valid', 'geom_area']:
                             # Convert any special types to JSON-serializable
                             if value is not None:
                                 attributes[key] = str(value) if not isinstance(value, (str, int, float, bool)) else value
@@ -112,9 +127,12 @@ class GeometryService:
                     composite_hash = self.compute_composite_hash(geometry_hash, attributes_hash)
                     
                     # Check if this is a new or changed geometry
-                    if composite_hash not in existing_hashes:
+                    is_new_geometry = composite_hash not in existing_hashes
+                    
+                    if is_baseline_run:
+                        # BASELINE RUN: Create snapshots for all geometries, no diffs
+                        logger.debug(f"📊 Baseline geometry: composite={composite_hash[:8]}..., geom={geometry_hash[:8]}...")
                         try:
-                            # Create new snapshot
                             snapshot = GeometrySnapshot(
                                 dataset_id=dataset.id,
                                 source_id=str(attributes.get('id') or attributes.get('gid') or ''),
@@ -125,69 +143,181 @@ class GeometryService:
                                 attributes=attributes
                             )
                             self.db.add(snapshot)
-                            
-                            # Flush to get the ID without committing
                             await self.db.flush()
-                            
                             snapshots_created += 1
+                        except Exception as snapshot_error:
+                            logger.error(f"Error creating baseline snapshot for geometry {geometry_hash}: {snapshot_error}")
+                            continue
+                    else:
+                        # CHANGE DETECTION RUN: Only process actual changes
+                        if is_new_geometry:
+                            logger.info(f"🆕 NEW geometry detected: composite={composite_hash[:8]}..., geom={geometry_hash[:8]}..., attrs={attributes_hash[:8]}...")
                             
-                            # Determine diff type and create diff record
-                            diff_type = await self._determine_diff_type(
-                                geometry_hash, attributes_hash, existing_snapshots
-                            )
+                            logger.debug(f"New geometry detected: {geometry_hash[:8]}... (problematic: {self._is_geometry_problematic(row)})")
                             
-                            # Create diff record
+                            # ⚠️ THRESHOLD CHECK: Only flag if geometry is "problematic"
+                            if self._is_geometry_problematic(row):
+                                # Check if we already have a pending diff for this geometry IN THIS DATASET
+                                existing_pending_diff = await self.db.execute(
+                                    select(GeometryDiff)
+                                    .join(GeometrySnapshot, GeometryDiff.new_snapshot_id == GeometrySnapshot.id)
+                                    .where(
+                                        GeometrySnapshot.dataset_id == dataset.id,
+                                        GeometrySnapshot.geometry_hash == geometry_hash,
+                                        GeometryDiff.status == "PENDING"
+                                    )
+                                )
+                                existing_diff_obj = existing_pending_diff.scalar_one_or_none()
+                                has_pending_diff = existing_diff_obj is not None
+                                
+                                if has_pending_diff:
+                                    logger.info(f"🔍 Found existing pending diff: diff_id={existing_diff_obj.id}, dataset={dataset.id}, geom_hash={geometry_hash[:8]}")
+                                
+                                if has_pending_diff:
+                                    logger.info(f"⏭️ Pending diff already exists for geometry {geometry_hash[:8]}... IN DATASET {dataset.id}, skipping")
+                                    # Still create snapshot for completeness
+                                    try:
+                                        snapshot = GeometrySnapshot(
+                                            dataset_id=dataset.id,
+                                            source_id=str(attributes.get('id') or attributes.get('gid') or ''),
+                                            geometry_hash=geometry_hash,
+                                            attributes_hash=attributes_hash,
+                                            composite_hash=composite_hash,
+                                            geometry=WKTElement(f"SRID=4326;{wkb.loads(geometry_wkb).wkt}"),
+                                            attributes=attributes
+                                        )
+                                        self.db.add(snapshot)
+                                        await self.db.flush()
+                                        snapshots_created += 1
+                                    except Exception as snapshot_error:
+                                        logger.error(f"Error creating snapshot for geometry {geometry_hash}: {snapshot_error}")
+                                    continue
+                                
+                                try:
+                                    # Create new snapshot
+                                    snapshot = GeometrySnapshot(
+                                        dataset_id=dataset.id,
+                                        source_id=str(attributes.get('id') or attributes.get('gid') or ''),
+                                        geometry_hash=geometry_hash,
+                                        attributes_hash=attributes_hash,
+                                        composite_hash=composite_hash,
+                                        geometry=WKTElement(f"SRID=4326;{wkb.loads(geometry_wkb).wkt}"),
+                                        attributes=attributes
+                                    )
+                                    self.db.add(snapshot)
+                                    
+                                    # Flush to get the ID without committing
+                                    await self.db.flush()
+                                    
+                                    snapshots_created += 1
+                                    
+                                    # Determine diff type and create diff record
+                                    diff_type = await self._determine_diff_type(
+                                        geometry_hash, attributes_hash, existing_snapshots
+                                    )
+                                    
+                                    # Check if diff already exists for this snapshot
+                                    existing_diff_result = await self.db.execute(
+                                        select(GeometryDiff).where(
+                                            GeometryDiff.new_snapshot_id == snapshot.id
+                                        )
+                                    )
+                                    existing_diff = existing_diff_result.scalar_one_or_none()
+                                    
+                                    if existing_diff:
+                                        logger.debug(f"Diff already exists for snapshot {snapshot.id}, skipping")
+                                        continue
+                                    
+                                    # Create diff record ONLY for problematic geometries
+                                    diff = GeometryDiff(
+                                        dataset_id=dataset.id,
+                                        diff_type=diff_type,
+                                        old_snapshot_id=None,  # Will be set if needed
+                                        new_snapshot_id=snapshot.id,
+                                        geometry_changed=True,
+                                        attributes_changed=False,
+                                        confidence_score=self._calculate_confidence_score(row)
+                                    )
+                                    
+                                    if diff_type == "UPDATED":
+                                        # Find the old snapshot with same geometry but different attributes
+                                        for existing_snapshot in existing_snapshots:
+                                            if existing_snapshot.geometry_hash == geometry_hash:
+                                                diff.old_snapshot_id = existing_snapshot.id
+                                                diff.geometry_changed = False
+                                                diff.attributes_changed = True
+                                                break
+                                    
+                                    self.db.add(diff)
+                                    diffs_detected += 1
+                                    logger.info(f"🚨 Created {diff_type} diff for geometry {geometry_hash[:8]}... (confidence: {diff.confidence_score})")
+                                    
+                                except Exception as snapshot_error:
+                                    logger.error(f"Error processing geometry {geometry_hash}: {snapshot_error}")
+                                    continue
+                            else:
+                                # Geometry is not problematic - just create snapshot, no diff
+                                try:
+                                    snapshot = GeometrySnapshot(
+                                        dataset_id=dataset.id,
+                                        source_id=str(attributes.get('id') or attributes.get('gid') or ''),
+                                        geometry_hash=geometry_hash,
+                                        attributes_hash=attributes_hash,
+                                        composite_hash=composite_hash,
+                                        geometry=WKTElement(f"SRID=4326;{wkb.loads(geometry_wkb).wkt}"),
+                                        attributes=attributes
+                                    )
+                                    self.db.add(snapshot)
+                                    await self.db.flush()
+                                    snapshots_created += 1
+                                except Exception as snapshot_error:
+                                    logger.error(f"Error creating snapshot for geometry {geometry_hash}: {snapshot_error}")
+                                    continue
+                        else:
+                            logger.debug(f"✅ EXISTING geometry found: composite={composite_hash[:8]}... - NO CHANGE, skipping")
+                            continue  # Skip processing - no change detected
+                
+                # Check for deleted geometries (only in change detection runs, not baseline runs)
+                if not is_baseline_run:
+                    # IMPORTANT: Use the same attribute processing logic as the main loop
+                    current_hashes = set()
+                    for row in external_rows:
+                        # Build attributes dict with same logic as main loop
+                        attributes = {}
+                        for key, value in row.items():
+                            if key not in [dataset.geometry_column, 'geometry_wkb', 'geometry_hash', 'is_valid', 'geom_area']:
+                                # Convert any special types to JSON-serializable (same as main loop)
+                                if value is not None:
+                                    attributes[key] = str(value) if not isinstance(value, (str, int, float, bool)) else value
+                        
+                        attributes_hash = self.compute_attributes_hash(attributes)
+                        composite_hash = self.compute_composite_hash(row['geometry_hash'], attributes_hash)
+                        current_hashes.add(composite_hash)
+                    
+                    logger.info(f"🔍 Deletion check: {len(existing_hashes)} existing vs {len(current_hashes)} current hashes")
+                    
+                    for existing_hash, existing_snapshot in existing_hashes.items():
+                        if existing_hash not in current_hashes:
+                            # Create deletion diff
+                            logger.info(f"🗑️ Creating DELETED diff for missing geometry: {existing_hash[:8]}...")
                             diff = GeometryDiff(
                                 dataset_id=dataset.id,
-                                diff_type=diff_type,
-                                old_snapshot_id=None,  # Will be set if needed
-                                new_snapshot_id=snapshot.id,
+                                diff_type="DELETED",
+                                old_snapshot_id=existing_snapshot.id,
                                 geometry_changed=True,
-                                attributes_changed=False,
-                                confidence_score=1.0
+                                confidence_score=1.0  # Deletions are always flagged
                             )
-                            
-                            if diff_type == "UPDATED":
-                                # Find the old snapshot with same geometry but different attributes
-                                for existing_snapshot in existing_snapshots:
-                                    if existing_snapshot.geometry_hash == geometry_hash:
-                                        diff.old_snapshot_id = existing_snapshot.id
-                                        diff.geometry_changed = False
-                                        diff.attributes_changed = True
-                                        break
-                            
                             self.db.add(diff)
                             diffs_detected += 1
-                            
-                        except Exception as snapshot_error:
-                            logger.error(f"Error processing geometry {geometry_hash}: {snapshot_error}")
-                            continue
-                
-                # Check for deleted geometries
-                current_hashes = {self.compute_composite_hash(row['geometry_hash'], 
-                                 self.compute_attributes_hash({k: v for k, v in row.items() 
-                                                              if k not in [dataset.geometry_column, 'geometry_wkb', 'geometry_hash']}))
-                                 for row in external_rows}
-                
-                for existing_hash, existing_snapshot in existing_hashes.items():
-                    if existing_hash not in current_hashes:
-                        # Create deletion diff
-                        diff = GeometryDiff(
-                            dataset_id=dataset.id,
-                            diff_type="DELETED",
-                            old_snapshot_id=existing_snapshot.id,
-                            geometry_changed=True,
-                            confidence_score=1.0
-                        )
-                        self.db.add(diff)
-                        diffs_detected += 1
+                else:
+                    logger.debug("📊 Skipping deletion check for baseline run")
                 
                 # Commit all changes at once
                 await self.db.commit()
                 
                 duration = (datetime.now(timezone.utc) - start_time).total_seconds()
                 
-                logger.info(f"✅ QA monitoring completed: {snapshots_created} snapshots, {diffs_detected} diffs flagged")
+                logger.info(f"✅ Change monitoring completed: {snapshots_created} snapshots, {diffs_detected} diffs flagged")
                 
                 return GeometryImportResponse(
                     dataset_id=dataset.id,
@@ -203,7 +333,7 @@ class GeometryService:
             
         except Exception as e:
             await self.db.rollback()
-            logger.error(f"Error importing geometries for dataset {dataset.id}: {e}")
+            logger.error(f"Error monitoring dataset changes {dataset.id}: {e}")
             
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             return GeometryImportResponse(
@@ -212,6 +342,200 @@ class GeometryService:
                 status="FAILED",
                 error_message=str(e)
             )
+    
+    def _is_geometry_problematic(self, row: dict) -> bool:
+        """
+        Determine if a geometry is "problematic" and should be flagged for review.
+        This is the THRESHOLD logic that determines what gets sent to the diff queue.
+        
+        FOR NOW: Simple rules for rapid prototyping
+        """
+        is_valid = row.get('is_valid', True)
+        geom_area = row.get('geom_area', 0) or 0
+        
+        # Basic problematic geometry rules (expand this over time)
+        if not is_valid:
+            logger.debug(f"Geometry flagged: invalid")
+            return True  # Invalid geometries are always problematic
+        
+        if geom_area <= 0:
+            logger.debug(f"Geometry flagged: zero/negative area ({geom_area})")
+            return True  # Zero/negative area polygons are problematic
+        
+        if geom_area > 1000000:  # Very large geometries might be errors
+            logger.debug(f"Geometry flagged: very large area ({geom_area})")
+            return True
+        
+        # TODO: Add more sophisticated threshold logic:
+        # - Self-intersections
+        # - Suspicious attribute changes
+        # - Geometries that moved too far
+        # - Unusual shape complexity
+        
+        return False  # Default: geometry is not problematic
+    
+    def _calculate_confidence_score(self, row: dict) -> float:
+        """Calculate confidence score for how likely this is a real issue."""
+        is_valid = row.get('is_valid', True)
+        geom_area = row.get('geom_area', 0) or 0
+        
+        if not is_valid:
+            return 0.95  # High confidence that invalid geometries are problems
+        
+        if geom_area <= 0:
+            return 0.90  # High confidence for zero area
+        
+        if geom_area > 1000000:
+            return 0.70  # Medium confidence for very large geometries
+        
+        return 0.50  # Default medium confidence
+    
+    async def run_quality_checks(self, dataset: Dataset) -> Dict[str, int]:
+        """
+        Separate workflow for running quality checks on existing data.
+        This runs on a different timer (hourly) and populates SpatialCheck table.
+        """
+        start_time = datetime.now(timezone.utc)
+        
+        try:
+            import asyncpg
+            
+            # Connect to external PostGIS database
+            external_conn = await asyncpg.connect(dataset.connection_string)
+            
+            try:
+                # Get ALL geometries for quality checking
+                quality_query = f"""
+                    SELECT 
+                        *,
+                        ST_AsBinary({dataset.geometry_column}) as geometry_wkb,
+                        ST_IsValid({dataset.geometry_column}) as is_valid,
+                        ST_IsSimple({dataset.geometry_column}) as is_simple,
+                        ST_Area({dataset.geometry_column}) as geom_area
+                    FROM {dataset.schema_name}.{dataset.table_name}
+                    WHERE {dataset.geometry_column} IS NOT NULL
+                """
+                
+                external_rows = await external_conn.fetch(quality_query)
+                
+                check_results = {
+                    "validity_checks": 0,
+                    "duplicate_checks": 0,
+                    "topology_checks": 0,
+                    "area_checks": 0,
+                    "failed_checks": 0
+                }
+                
+                for row in external_rows:
+                    # Get or create snapshot for this geometry
+                    geometry_hash = hashlib.md5(row['geometry_wkb']).hexdigest()
+                    
+                    # Find corresponding snapshot (handle duplicates)
+                    result = await self.db.execute(
+                        select(GeometrySnapshot).where(
+                            GeometrySnapshot.dataset_id == dataset.id,
+                            GeometrySnapshot.geometry_hash == geometry_hash
+                        )
+                    )
+                    snapshots = result.scalars().all()
+                    snapshot = snapshots[0] if snapshots else None
+                    
+                    if len(snapshots) > 1:
+                        logger.warning(f"Found {len(snapshots)} snapshots with same geometry_hash {geometry_hash[:8]}...")
+                    
+                    if not snapshot:
+                        continue  # Skip if no snapshot exists
+                    
+                    # Run basic quality checks
+                    checks = await self._run_basic_quality_checks(dataset.id, snapshot, row)
+                    
+                    for check in checks:
+                        self.db.add(check)
+                        
+                        check_type_key = f"{check.check_type.lower()}_checks"
+                        if check_type_key not in check_results:
+                            check_results[check_type_key] = 0
+                        check_results[check_type_key] += 1
+                        
+                        if check.check_result == "FAIL":
+                            check_results["failed_checks"] += 1
+                
+                await self.db.commit()
+                
+                duration = (datetime.now(timezone.utc) - start_time).total_seconds()
+                logger.info(f"✅ Quality checks completed: {check_results}")
+                
+                return check_results
+                
+            finally:
+                await external_conn.close()
+            
+        except Exception as e:
+            logger.error(f"Error running quality checks for dataset {dataset.id}: {e}")
+            return {"error": str(e)}
+    
+    async def _run_basic_quality_checks(
+        self, 
+        dataset_id: UUID, 
+        snapshot: GeometrySnapshot, 
+        row: dict
+    ) -> List[SpatialCheck]:
+        """Run basic quality checks on a geometry. Keep simple for now."""
+        checks = []
+        
+        is_valid = row.get('is_valid', True)
+        is_simple = row.get('is_simple', True)
+        geom_area = row.get('geom_area', 0) or 0
+        
+        # 1. Validity check
+        validity_check = SpatialCheck(
+            dataset_id=dataset_id,
+            snapshot_id=snapshot.id,
+            check_type="VALIDITY",
+            check_result="PASS" if is_valid else "FAIL",
+            error_message=None if is_valid else "Invalid geometry detected"
+        )
+        checks.append(validity_check)
+        
+        # 2. Simplicity check (basic topology)
+        simplicity_check = SpatialCheck(
+            dataset_id=dataset_id,
+            snapshot_id=snapshot.id,
+            check_type="TOPOLOGY",
+            check_result="PASS" if is_simple else "FAIL", 
+            error_message=None if is_simple else "Non-simple geometry (self-intersections)"
+        )
+        checks.append(simplicity_check)
+        
+        # 3. Area check (basic sanity)
+        area_result = "PASS"
+        area_message = None
+        if geom_area <= 0:
+            area_result = "FAIL"
+            area_message = f"Zero or negative area: {geom_area}"
+        elif geom_area > 1000000:
+            area_result = "WARNING"
+            area_message = f"Unusually large area: {geom_area}"
+        
+        area_check = SpatialCheck(
+            dataset_id=dataset_id,
+            snapshot_id=snapshot.id,
+            check_type="AREA",
+            check_result=area_result,
+            error_message=area_message
+        )
+        checks.append(area_check)
+        
+        return checks
+
+    # Keep existing methods for backward compatibility
+    async def import_geometries_from_external_source(
+        self, 
+        dataset: Dataset,
+        force_reimport: bool = False
+    ) -> GeometryImportResponse:
+        """Legacy method - redirects to new change monitoring."""
+        return await self.monitor_dataset_changes(dataset, force_reimport)
     
     async def _get_existing_snapshots(self, dataset_id: UUID) -> List[GeometrySnapshot]:
         """Get all existing snapshots for a dataset."""

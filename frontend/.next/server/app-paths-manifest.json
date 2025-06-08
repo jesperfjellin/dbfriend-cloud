@@ -1,5 +1,5 @@
 {
   "/datasets/page": "app/datasets/page.js",
-  "/monitoring/page": "app/monitoring/page.js",
-  "/diffs/page": "app/diffs/page.js"
+  "/diffs/page": "app/diffs/page.js",
+  "/page": "app/page.js"
 }
