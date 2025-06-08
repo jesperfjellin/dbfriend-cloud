@@ -5,7 +5,16 @@
  * Each function here corresponds to an endpoint in your backend
  */
 
-import { Dataset, DatasetCreate, DatasetStats, GeometryDiff, DiffReview } from '@/types/api'
+import { 
+  Dataset, 
+  DatasetCreate, 
+  DatasetUpdate,
+  DatasetConnectionTest,
+  DatasetConnectionTestResponse,
+  DatasetStats, 
+  GeometryDiff, 
+  DiffReview 
+} from '@/types/api'
 
 // Base API URL (like setting a base URL in requests)
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -32,19 +41,14 @@ async function apiRequest<T>(
   return response.json()
 }
 
-// Dataset API functions (correspond to your FastAPI endpoints)
+// Dataset API functions
 export const datasetApi = {
-  // GET /api/v1/datasets/ - like requests.get()
+  // GET /api/v1/datasets/ - list all datasets
   list: async (): Promise<Dataset[]> => {
     return apiRequest<Dataset[]>('/datasets/')
   },
 
-  // GET /api/v1/datasets/{id} - like requests.get(f'/datasets/{id}')
-  get: async (id: string): Promise<Dataset> => {
-    return apiRequest<Dataset>(`/datasets/${id}`)
-  },
-
-  // POST /api/v1/datasets/ - like requests.post()
+  // POST /api/v1/datasets/ - create new dataset
   create: async (dataset: DatasetCreate): Promise<Dataset> => {
     return apiRequest<Dataset>('/datasets/', {
       method: 'POST',
@@ -52,25 +56,45 @@ export const datasetApi = {
     })
   },
 
-  // PUT /api/v1/datasets/{id} - like requests.put()
-  update: async (id: string, dataset: Partial<DatasetCreate>): Promise<Dataset> => {
+  // GET /api/v1/datasets/{id} - get specific dataset
+  get: async (id: string): Promise<Dataset> => {
+    return apiRequest<Dataset>(`/datasets/${id}`)
+  },
+
+  // PUT /api/v1/datasets/{id} - update dataset
+  update: async (id: string, updates: DatasetUpdate): Promise<Dataset> => {
     return apiRequest<Dataset>(`/datasets/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(dataset),
+      body: JSON.stringify(updates),
+    })
+  },
+
+  // DELETE /api/v1/datasets/{id} - delete dataset
+  delete: async (id: string): Promise<void> => {
+    return apiRequest<void>(`/datasets/${id}`, {
+      method: 'DELETE',
+    })
+  },
+
+  // POST /api/v1/datasets/test-connection - test database connection
+  testConnection: async (testData: DatasetConnectionTest): Promise<DatasetConnectionTestResponse> => {
+    return apiRequest<DatasetConnectionTestResponse>('/datasets/test-connection', {
+      method: 'POST',
+      body: JSON.stringify(testData),
+    })
+  },
+
+  // POST /api/v1/datasets/{id}/import - trigger geometry import
+  import: async (id: string, forceReimport: boolean = false) => {
+    return apiRequest(`/datasets/${id}/import`, {
+      method: 'POST',
+      body: JSON.stringify({ force_reimport: forceReimport }),
     })
   },
 
   // GET /api/v1/datasets/{id}/stats - like requests.get()
   getStats: async (id: string): Promise<DatasetStats> => {
     return apiRequest<DatasetStats>(`/datasets/${id}/stats`)
-  },
-
-  // POST /api/v1/datasets/{id}/import - trigger diff detection
-  triggerImport: async (id: string, force_reimport: boolean = false) => {
-    return apiRequest(`/datasets/${id}/import`, {
-      method: 'POST',
-      body: JSON.stringify({ dataset_id: id, force_reimport }),
-    })
   },
 }
 

@@ -59,7 +59,6 @@ architecture:
 
 milestones:
   v0_1:
-    - CLI ingestion → scratch schema
     - Basic duplicate/equals check via SQL
     - React map diff viewer (read-only)
   v0_2:

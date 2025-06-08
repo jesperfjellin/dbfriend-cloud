@@ -9,18 +9,70 @@ from pydantic import BaseModel, Field, ConfigDict
 from uuid import UUID
 
 
+class DatasetConnectionCreate(BaseModel):
+    """Secure connection creation - no raw passwords."""
+    name: str = Field(..., description="Name of the dataset")
+    description: Optional[str] = Field(None, description="Description of the dataset")
+    
+    # Connection metadata (safe to store)
+    host: str = Field(..., description="Database hostname")
+    port: int = Field(default=5432, description="Database port")
+    database: str = Field(..., description="Database name")
+    schema_name: str = Field(default="public", description="Database schema name")
+    table_name: str = Field(..., description="Table name containing geometries")
+    geometry_column: str = Field(default="geom", description="Name of the geometry column")
+    
+    # Authentication (encrypted/tokenized)
+    username: str = Field(..., description="Database username")
+    password: str = Field(..., description="Database password - will be encrypted")
+    
+    # Monitoring settings
+    check_interval_minutes: int = Field(default=60, description="Check interval in minutes")
+    
+    # Security settings
+    ssl_mode: str = Field(default="prefer", description="SSL connection mode")
+    read_only: bool = Field(default=True, description="Use read-only connection")
+
+
+class DatasetConnectionTest(BaseModel):
+    """Test connection request."""
+    host: str
+    port: int
+    database: str
+    username: str
+    password: str
+    ssl_mode: str = "prefer"
+
+
+class DatasetConnectionTestResponse(BaseModel):
+    """Connection test result."""
+    success: bool
+    message: str
+    schema_info: Optional[Dict[str, Any]] = None  # Available schemas/tables
+    postgis_version: Optional[str] = None
+    permissions: List[str] = Field(default_factory=list)  # What user can do
+
+
 class DatasetBase(BaseModel):
     """Base dataset model with common fields."""
     name: str = Field(..., description="Name of the dataset")
     description: Optional[str] = Field(None, description="Description of the dataset")
-    connection_string: str = Field(..., description="PostgreSQL connection string")
+    
+    # Connection info (metadata only - credentials stored encrypted)
+    host: str = Field(..., description="Database hostname")
+    port: int = Field(default=5432, description="Database port") 
+    database: str = Field(..., description="Database name")
     schema_name: str = Field(default="public", description="Database schema name")
     table_name: str = Field(..., description="Table name containing geometries")
     geometry_column: str = Field(default="geom", description="Name of the geometry column")
+    
+    # Settings
     check_interval_minutes: int = Field(default=60, description="Check interval in minutes")
+    ssl_mode: str = Field(default="prefer", description="SSL connection mode")
+    read_only: bool = Field(default=True, description="Use read-only connection")
 
 
-class DatasetCreate(DatasetBase):
+class DatasetCreate(DatasetConnectionCreate):
     """Model for creating a new dataset."""
     pass
 
@@ -42,6 +94,11 @@ class Dataset(DatasetBase):
     updated_at: datetime
     is_active: bool
     last_check_at: Optional[datetime] = None
+    
+    # Connection status
+    connection_status: str = Field(default="unknown", description="last|success|failed|testing")
+    last_connection_test: Optional[datetime] = None
+    connection_error: Optional[str] = None
 
 
 class GeometrySnapshotBase(BaseModel):

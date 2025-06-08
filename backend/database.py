@@ -44,11 +44,25 @@ class Dataset(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=True)
     
-    # Connection info
-    connection_string: Mapped[str] = mapped_column(Text, nullable=False)
+    # Connection metadata (safe to store)
+    host: Mapped[str] = mapped_column(String(255), nullable=False)
+    port: Mapped[int] = mapped_column(Integer, default=5432)
+    database: Mapped[str] = mapped_column(String(255), nullable=False)
     schema_name: Mapped[str] = mapped_column(String(255), default="public")
     table_name: Mapped[str] = mapped_column(String(255), nullable=False)
     geometry_column: Mapped[str] = mapped_column(String(255), default="geom")
+    
+    # Security settings
+    ssl_mode: Mapped[str] = mapped_column(String(20), default="prefer")
+    read_only: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # Credentials (encrypted in production)
+    connection_string: Mapped[str] = mapped_column(Text, nullable=False)  # Temporary - will be replaced with encrypted storage
+    
+    # Connection health monitoring
+    connection_status: Mapped[str] = mapped_column(String(20), default="unknown")  # unknown, success, failed, testing
+    last_connection_test: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    connection_error: Mapped[str] = mapped_column(Text, nullable=True)
     
     # Metadata
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -62,6 +76,8 @@ class Dataset(Base):
     __table_args__ = (
         Index("idx_datasets_name", "name"),
         Index("idx_datasets_active", "is_active"),
+        Index("idx_datasets_host", "host"),
+        Index("idx_datasets_connection_status", "connection_status"),
     )
 
 
@@ -166,13 +182,14 @@ async def init_db():
     """Initialize OUR database for storing analysis results and user configurations."""
     try:
         async with engine.begin() as conn:
-            # Only create OUR tables for storing analysis results, diffs, spatial checks
-            # User databases: we read geometries + write approved fixes (never create infrastructure)
+            # For development: drop and recreate all tables to match updated schema
+            # TODO: In production, use proper Alembic migrations
+            await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
         
         import logging
         logger = logging.getLogger("dbfriend-cloud")
-        logger.info("[green]✓ dbfriend-cloud database initialized[/green]")
+        logger.info("[green]✓ dbfriend-cloud database initialized (tables recreated)[/green]")
         
     except Exception as e:
         import logging
@@ -180,4 +197,15 @@ async def init_db():
         logger.warning(f"[yellow]⚠ Database connection failed: {e}[/yellow]")
         logger.warning("[yellow]⚠ Running in development mode without database[/yellow]")
         # Continue running without database for development
+
+
+async def reset_db_for_development():
+    """Drop and recreate all tables. USE ONLY IN DEVELOPMENT!"""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    
+    import logging
+    logger = logging.getLogger("dbfriend-cloud")
+    logger.info("[yellow]⚠ Database tables reset for development[/yellow]")
 

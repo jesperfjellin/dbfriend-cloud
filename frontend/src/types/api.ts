@@ -10,26 +10,51 @@ export interface Dataset {
   id: string
   name: string
   description?: string
-  connection_string: string
+  
+  // Connection metadata (no credentials)
+  host: string
+  port: number
+  database: string
   schema_name: string
   table_name: string
   geometry_column: string
+  
+  // Settings
   check_interval_minutes: number
+  ssl_mode: string
+  read_only: boolean
+  
+  // Status
   created_at: string
   updated_at: string
   is_active: boolean
   last_check_at?: string
+  
+  // Connection health
+  connection_status: string // "unknown" | "success" | "failed" | "testing"
+  last_connection_test?: string
+  connection_error?: string
 }
 
 // For creating new datasets (like DatasetCreate Pydantic model)
 export interface DatasetCreate {
   name: string
   description?: string
-  connection_string: string
+  
+  // Connection details
+  host: string
+  port: number
+  database: string
   schema_name: string
   table_name: string
   geometry_column: string
+  username: string
+  password: string // Will be encrypted on backend
+  
+  // Settings
   check_interval_minutes: number
+  ssl_mode: string
+  read_only: boolean
 }
 
 // For updating existing datasets (like DatasetUpdate Pydantic model)
@@ -93,4 +118,21 @@ export interface ApiResponse<T> {
   data?: T
   error?: string
   message?: string
+}
+
+export interface DatasetConnectionTest {
+  host: string
+  port: number
+  database: string
+  username: string
+  password: string
+  ssl_mode?: string
+}
+
+export interface DatasetConnectionTestResponse {
+  success: boolean
+  message: string
+  schema_info?: Record<string, any>
+  postgis_version?: string
+  permissions: string[]
 } 

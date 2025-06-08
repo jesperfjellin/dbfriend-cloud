@@ -12,11 +12,95 @@ from sqlalchemy import select, func
 from database import get_db, Dataset
 from models import (
     DatasetCreate, DatasetUpdate, Dataset as DatasetModel,
+    DatasetConnectionTest, DatasetConnectionTestResponse,
     GeometryImportRequest, GeometryImportResponse, DatasetStats, DiffStats
 )
 from services.geometry_service import GeometryService
 
 router = APIRouter()
+
+
+@router.post("/test-connection", response_model=DatasetConnectionTestResponse)
+async def test_connection(
+    connection_test: DatasetConnectionTest
+):
+    """
+    Test database connection and return available information.
+    This is used by the frontend form to validate connections.
+    """
+    import asyncpg
+    import asyncio
+    
+    try:
+        # Build connection string
+        connection_string = f"postgresql://{connection_test.username}:{connection_test.password}@{connection_test.host}:{connection_test.port}/{connection_test.database}"
+        
+        # Test basic connectivity
+        conn = await asyncpg.connect(connection_string, ssl=connection_test.ssl_mode)
+        
+        try:
+            # Test PostGIS availability
+            postgis_version = None
+            try:
+                result = await conn.fetchval("SELECT PostGIS_Version()")
+                postgis_version = result
+            except:
+                pass
+            
+            # Get user permissions
+            permissions = []
+            try:
+                # Check if user can read from information_schema
+                can_read_schema = await conn.fetchval("""
+                    SELECT has_schema_privilege(current_user, 'information_schema', 'USAGE')
+                """)
+                if can_read_schema:
+                    permissions.append("READ_SCHEMA")
+                
+                # Check basic table access (we'll test specific tables later)
+                permissions.append("CONNECT")
+                
+            except Exception as e:
+                # Basic connection works even if we can't check permissions
+                permissions.append("CONNECT")
+            
+            # Get schema information
+            schema_info = {}
+            try:
+                schemas = await conn.fetch("""
+                    SELECT schema_name 
+                    FROM information_schema.schemata 
+                    WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+                    ORDER BY schema_name
+                """)
+                schema_info["available_schemas"] = [row["schema_name"] for row in schemas]
+            except:
+                schema_info["available_schemas"] = []
+            
+            await conn.close()
+            
+            return DatasetConnectionTestResponse(
+                success=True,
+                message=f"Successfully connected to {connection_test.host}:{connection_test.port}/{connection_test.database}",
+                postgis_version=postgis_version,
+                permissions=permissions,
+                schema_info=schema_info
+            )
+            
+        except Exception as inner_e:
+            await conn.close()
+            return DatasetConnectionTestResponse(
+                success=False,
+                message=f"Connected to database but error during testing: {str(inner_e)}",
+                permissions=["CONNECT"]
+            )
+            
+    except Exception as e:
+        return DatasetConnectionTestResponse(
+            success=False,
+            message=f"Connection failed: {str(e)}",
+            permissions=[]
+        )
 
 
 @router.post("/", response_model=DatasetModel)
@@ -26,9 +110,24 @@ async def create_dataset(
 ):
     """Create a new dataset for monitoring."""
     
-    # TODO: Add validation for connection string and table existence
+    # Create dataset with individual connection fields
+    # Note: In production, password would be encrypted before storage
+    db_dataset = Dataset(
+        name=dataset.name,
+        description=dataset.description,
+        host=dataset.host,
+        port=dataset.port,
+        database=dataset.database,
+        schema_name=dataset.schema_name,
+        table_name=dataset.table_name,
+        geometry_column=dataset.geometry_column,
+        check_interval_minutes=dataset.check_interval_minutes,
+        ssl_mode=dataset.ssl_mode,
+        read_only=dataset.read_only,
+        # TODO: Encrypt and store credentials securely
+        connection_string=f"postgresql://{dataset.username}:{dataset.password}@{dataset.host}:{dataset.port}/{dataset.database}"
+    )
     
-    db_dataset = Dataset(**dataset.model_dump())
     db.add(db_dataset)
     await db.commit()
     await db.refresh(db_dataset)
