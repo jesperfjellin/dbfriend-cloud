@@ -1,0 +1,77 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+project:
+  name: dbfriend-cloud
+  description: >
+    SaaS for geometry-diff QA on PostGIS: automated checks +
+    Git-style accept/reject queue that writes back to the DB.
+
+architecture:
+  guiding_principles:
+    - "Prototype quickly in Python."
+    - "Push as much spatial math as possible down to PostGIS SQL."
+    - "Optimize hotspots by rewriting them in Rust (PyO3 bindings)."
+    - "TypeScript/React for the interactive diff dashboard."
+
+  tech_stack:
+    api_layer:
+      language: Python
+      framework: FastAPI
+      db_driver: async-psycopg3
+      schema_validation: Pydantic v2
+    worker_queue:
+      library: Celery
+      broker: Redis
+      purpose: Long-running imports & diff jobs
+    spatial_database:
+      engine: PostgreSQL 16
+      extension: PostGIS
+      zero_downtime_strategy: "ALTER TABLE … SWAP PARTITION"
+    hotspot_microservice:
+      language: Rust
+      frameworks:
+        - actix-web (HTTP) # or tonic (gRPC) if needed
+      bindings_to_python: PyO3
+      compile_targets:
+        - native
+        - wasm32-unknown-unknown  # optional for client-side reuse
+    front_end:
+      language: TypeScript
+      framework: Next.js (React)
+      map_library: MapLibre GL
+      visualization: deck.gl
+      state_management: TanStack Query / Zustand
+    shared_types:
+      backend: Pydantic models
+      frontend: Zod schemas
+      contract_generation: openapi-typescript-codegen
+    ci_cd:
+      pipeline: GitHub Actions
+      containerization: Docker (multi-service)
+      hosting_options:
+        - Fly.io  # single-region PoC
+        - Kubernetes  # multi-tenant scale
+      secrets: GitHub OIDC → cloud KMS
+
+  performance_escalation_path:
+    - "Write query first (PostGIS)."
+    - "If slow → profile Python."
+    - "If Python hotspot found → migrate to Rust micro-service or PyO3 module."
+    - "If network latency dominates → move Rust code to WASM in browser."
+
+milestones:
+  v0_1:
+    - CLI ingestion → scratch schema
+    - Basic duplicate/equals check via SQL
+    - React map diff viewer (read-only)
+  v0_2:
+    - Accept/Reject queue with hotkeys
+    - Transactional apply via ALTER SWAP
+  v1_0:
+    - Change-set clustering (Rust)
+    - Confidence scoring + auto-triage
+
+    - Multi-tenant auth & billing
