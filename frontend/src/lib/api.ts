@@ -13,7 +13,9 @@ import {
   DatasetConnectionTestResponse,
   DatasetStats, 
   GeometryDiff, 
-  DiffReview 
+  DiffReview,
+  SpatialCheck,
+  SpatialCheckStats
 } from '@/types/api'
 
 // Base API URL (like setting a base URL in requests)
@@ -141,4 +143,37 @@ export const healthApi = {
   check: async (): Promise<{ status: string }> => {
     return apiRequest<{ status: string }>('/health')
   }
+}
+
+// Tests API functions (Spatial Checks)
+export const testsApi = {
+  // GET /api/v1/geometry/spatial-checks/ - list spatial checks with filtering
+  list: async (params: {
+    dataset_id?: string
+    check_type?: string
+    check_result?: string
+    skip?: number
+    limit?: number
+  } = {}): Promise<SpatialCheck[]> => {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined) searchParams.append(key, value.toString())
+    })
+    
+    const query = searchParams.toString()
+    return apiRequest<SpatialCheck[]>(`/geometry/spatial-checks/${query ? '?' + query : ''}`)
+  },
+
+  // GET /api/v1/geometry/spatial-checks/stats - get spatial check statistics
+  getStats: async (dataset_id?: string): Promise<SpatialCheckStats> => {
+    const query = dataset_id ? `?dataset_id=${dataset_id}` : ''
+    return apiRequest<SpatialCheckStats>(`/geometry/spatial-checks/stats${query}`)
+  },
+
+  // POST /api/v1/geometry/snapshots/{snapshot_id}/spatial-checks - run spatial checks on a snapshot
+  runChecks: async (snapshot_id: string): Promise<SpatialCheck[]> => {
+    return apiRequest<SpatialCheck[]>(`/geometry/snapshots/${snapshot_id}/spatial-checks`, {
+      method: 'POST',
+    })
+  },
 } 

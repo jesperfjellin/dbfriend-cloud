@@ -25,6 +25,12 @@ export default function HomePage() {
       color: 'bg-orange-50 text-orange-700 border-orange-200'
     },
     {
+      title: 'Quality Tests',
+      description: 'Monitor persistent topology and validity tests running on your spatial data.',
+      href: '/tests',
+      color: 'bg-purple-50 text-purple-700 border-purple-200'
+    },
+    {
       title: 'System Monitoring',
       description: 'Monitor storage usage, system health, and performance metrics.',
       href: '/monitoring',

@@ -496,53 +496,9 @@ class GeometryService:
         snapshot: GeometrySnapshot, 
         row: dict
     ) -> List[SpatialCheck]:
-        """Run basic quality checks on a geometry. Keep simple for now."""
-        checks = []
-        
-        is_valid = row.get('is_valid', True)
-        is_simple = row.get('is_simple', True)
-        geom_area = row.get('geom_area', 0) or 0
-        
-        # 1. Validity check
-        validity_check = SpatialCheck(
-            dataset_id=dataset_id,
-            snapshot_id=snapshot.id,
-            check_type="VALIDITY",
-            check_result="PASS" if is_valid else "FAIL",
-            error_message=None if is_valid else "Invalid geometry detected"
-        )
-        checks.append(validity_check)
-        
-        # 2. Simplicity check (basic topology)
-        simplicity_check = SpatialCheck(
-            dataset_id=dataset_id,
-            snapshot_id=snapshot.id,
-            check_type="TOPOLOGY",
-            check_result="PASS" if is_simple else "FAIL", 
-            error_message=None if is_simple else "Non-simple geometry (self-intersections)"
-        )
-        checks.append(simplicity_check)
-        
-        # 3. Area check (basic sanity)
-        area_result = "PASS"
-        area_message = None
-        if geom_area <= 0:
-            area_result = "FAIL"
-            area_message = f"Zero or negative area: {geom_area}"
-        elif geom_area > 1000000:
-            area_result = "WARNING"
-            area_message = f"Unusually large area: {geom_area}"
-        
-        area_check = SpatialCheck(
-            dataset_id=dataset_id,
-            snapshot_id=snapshot.id,
-            check_type="AREA",
-            check_result=area_result,
-            error_message=area_message
-        )
-        checks.append(area_check)
-        
-        return checks
+        """Run basic quality checks using the dedicated spatial tests module."""
+        from .spatial_tests import run_basic_quality_checks
+        return await run_basic_quality_checks(self.db, dataset_id, snapshot, row)
 
     # Keep existing methods for backward compatibility
     async def import_geometries_from_external_source(

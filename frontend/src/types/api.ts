@@ -135,4 +135,22 @@ export interface DatasetConnectionTestResponse {
   schema_info?: Record<string, any>
   postgis_version?: string
   permissions: string[]
+}
+
+// Spatial Check types (for Tests page)
+export interface SpatialCheck {
+  id: string
+  dataset_id: string
+  snapshot_id: string
+  check_type: string // "VALIDITY", "TOPOLOGY", "DUPLICATE", "AREA", etc.
+  check_result: string // "PASS", "FAIL", "WARNING"
+  error_message?: string
+  error_details?: Record<string, any>
+  created_at: string
+}
+
+// Statistics for spatial checks
+export interface SpatialCheckStats {
+  dataset_id?: string
+  check_stats: Record<string, Record<string, number>> // check_type -> result -> count
 } 

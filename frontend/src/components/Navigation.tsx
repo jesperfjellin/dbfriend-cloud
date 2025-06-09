@@ -11,6 +11,7 @@ export function Navigation() {
   const navigation = [
     { name: 'Datasets', href: '/datasets' },
     { name: 'Diff Queue', href: '/diffs' },
+    { name: 'Tests', href: '/tests' },
     { name: 'Monitoring', href: '/monitoring' },
   ]
 
