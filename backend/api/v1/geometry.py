@@ -13,6 +13,9 @@ from database import get_db, GeometrySnapshot, SpatialCheck
 from models import SpatialCheck as SpatialCheckModel
 from services.geometry_service import GeometryService
 
+import logging
+logger = logging.getLogger("dbfriend-cloud")
+
 router = APIRouter()
 
 
@@ -26,30 +29,46 @@ async def get_geometry_geojson(
     Used by the frontend map components.
     """
     
-    # Verify snapshot exists
-    result = await db.execute(
-        select(GeometrySnapshot).where(GeometrySnapshot.id == snapshot_id)
-    )
-    snapshot = result.scalar_one_or_none()
-    
-    if not snapshot:
-        raise HTTPException(status_code=404, detail="Geometry snapshot not found")
-    
-    # Get GeoJSON representation
-    geometry_service = GeometryService(db)
-    geojson = await geometry_service.get_geometry_as_geojson(snapshot_id)
-    
-    if geojson is None:
-        raise HTTPException(
-            status_code=500, 
-            detail="Error converting geometry to GeoJSON"
+    try:
+        # Verify snapshot exists
+        result = await db.execute(
+            select(GeometrySnapshot).where(GeometrySnapshot.id == snapshot_id)
         )
-    
-    return {
-        "snapshot_id": snapshot_id,
-        "geometry": geojson,
-        "attributes": snapshot.attributes
-    }
+        snapshot = result.scalar_one_or_none()
+        
+        if not snapshot:
+            raise HTTPException(status_code=404, detail="Geometry snapshot not found")
+        
+        # Log snapshot info for debugging
+        logger.info(f"Found snapshot {snapshot_id}, attempting to convert geometry to GeoJSON")
+        
+        # Get GeoJSON representation
+        geometry_service = GeometryService(db)
+        geojson = await geometry_service.get_geometry_as_geojson(snapshot_id)
+        
+        if geojson is None:
+            logger.error(f"Failed to convert geometry for snapshot {snapshot_id} to GeoJSON")
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Error converting geometry to GeoJSON for snapshot {snapshot_id}"
+            )
+        
+        logger.info(f"Successfully converted geometry for snapshot {snapshot_id} to GeoJSON")
+        
+        return {
+            "snapshot_id": snapshot_id,
+            "geometry": geojson,
+            "attributes": snapshot.attributes
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in get_geometry_geojson for {snapshot_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
 
 
 @router.post("/snapshots/{snapshot_id}/spatial-checks", response_model=List[SpatialCheckModel])

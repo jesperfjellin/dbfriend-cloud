@@ -176,4 +176,12 @@ export const testsApi = {
       method: 'POST',
     })
   },
+}
+
+// Geometry API functions
+export const geometryApi = {
+  // GET /api/v1/geometry/snapshots/{snapshot_id}/geojson - get geometry as GeoJSON
+  getGeoJSON: async (snapshot_id: string) => {
+    return apiRequest(`/geometry/snapshots/${snapshot_id}/geojson`)
+  },
 } 

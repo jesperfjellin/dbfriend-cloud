@@ -31,7 +31,7 @@ export function Map({ oldGeometry, newGeometry, onMapLoad, className = '' }: Map
       container: mapContainer.current,
       // Free tile server (like using free base layers)
       style: 'https://demotiles.maplibre.org/style.json',
-      center: [-74.5, 40], // Default to NYC area
+      center: [16.3738, 48.2082], // Default to Vienna, Austria (central Europe)
       zoom: 9,
     })
 

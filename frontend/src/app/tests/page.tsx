@@ -1,23 +1,24 @@
 /**
- * Quality Tests Page
+ * Quality Tests Page - Map-Centric View
  * 
- * Monitor persistent topology and validity tests on spatial data
- * Similar to diffs but shows quality check results instead of changes
+ * Map-focused interface for reviewing spatial quality tests
+ * Left sidebar shows test list, right side shows map with test geometries
  */
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { testsApi, datasetApi } from '@/lib/api'
+import { testsApi, datasetApi, geometryApi } from '@/lib/api'
 import { SpatialCheck, Dataset } from '@/types/api'
+import { TestMap } from '@/components/TestMap'
 
 export default function TestsPage() {
   const [selectedTest, setSelectedTest] = useState<SpatialCheck | null>(null)
   const [filter, setFilter] = useState<'all' | 'pass' | 'fail' | 'warning'>('fail')
   const [selectedDataset, setSelectedDataset] = useState<string>('all')
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize] = useState(100) // Items per page
+  const [pageSize] = useState(50) // Smaller page size for sidebar
   
   const queryClient = useQueryClient()
 
@@ -43,6 +44,35 @@ export default function TestsPage() {
     queryKey: ['test-stats', selectedDataset],
     queryFn: () => testsApi.getStats(selectedDataset === 'all' ? undefined : selectedDataset),
   })
+
+  // Fetch geometry data for selected test
+  const { data: geometryData, error: geometryError, isLoading: geometryLoading } = useQuery<{
+    snapshot_id: string;
+    geometry: any;
+    attributes?: any;
+  } | null>({
+    queryKey: ['test-geometry', selectedTest?.snapshot_id],
+    queryFn: async () => {
+      if (!selectedTest) return null
+      try {
+        const data = await geometryApi.getGeoJSON(selectedTest.snapshot_id)
+        console.log('Geometry data received:', data) // Debug log
+        return data as { snapshot_id: string; geometry: any; attributes?: any }
+      } catch (error) {
+        console.error('Failed to fetch geometry:', error)
+        throw error
+      }
+    },
+    enabled: !!selectedTest?.snapshot_id,
+    retry: 1,
+  })
+
+  // Auto-select first failed test when page loads
+  useEffect(() => {
+    if (tests && tests.length > 0 && !selectedTest) {
+      setSelectedTest(tests[0])
+    }
+  }, [tests, selectedTest])
 
   // Reset to page 1 when filters change
   const handleFilterChange = (newFilter: typeof filter) => {
@@ -81,17 +111,6 @@ export default function TestsPage() {
   const hasNextPage = currentPage < totalPages
   const hasPrevPage = currentPage > 1
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading quality tests...</p>
-        </div>
-      </div>
-    )
-  }
-
   const getCheckTypeColor = (checkType: string) => {
     switch (checkType.toLowerCase()) {
       case 'validity': return 'bg-blue-100 text-blue-800'
@@ -111,18 +130,29 @@ export default function TestsPage() {
     }
   }
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading quality tests...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-6">
+      <header className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-full mx-auto px-6 py-4">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">
+              <h1 className="text-2xl font-bold text-gray-900">
                 Quality Tests Monitor
               </h1>
-              <p className="text-gray-600 mt-2">
-                Persistent topology and validity checks on your spatial data
+              <p className="text-sm text-gray-600">
+                {totalCount.toLocaleString()} tests • Inspect spatial data quality issues
               </p>
             </div>
             
@@ -132,7 +162,7 @@ export default function TestsPage() {
               <select
                 value={selectedDataset}
                 onChange={(e) => handleDatasetChange(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
               >
                 <option value="all">All Datasets</option>
                 {datasets?.map((dataset) => (
@@ -143,12 +173,12 @@ export default function TestsPage() {
               </select>
 
               {/* Result filter */}
-              <div className="flex space-x-2">
+              <div className="flex space-x-1">
                 {(['all', 'fail', 'warning', 'pass'] as const).map((status) => (
                   <button
                     key={status}
                     onClick={() => handleFilterChange(status)}
-                    className={`px-4 py-2 rounded-lg capitalize transition-colors ${
+                    className={`px-3 py-2 text-sm rounded-lg capitalize transition-colors ${
                       filter === status
                         ? 'bg-purple-600 text-white'
                         : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -163,195 +193,162 @@ export default function TestsPage() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* Main Content - Sidebar + Map */}
+      <div className="flex h-[calc(100vh-120px)]">
+        
+        {/* Left Sidebar - Tests List */}
+        <div className="w-96 bg-white border-r border-gray-200 flex flex-col">
           
-          {/* Tests List */}
-          <div className="bg-white rounded-lg shadow flex flex-col h-[600px]">
-            <div className="p-6 border-b flex-shrink-0">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold">
-                  Quality Tests ({totalCount.toLocaleString()})
-                </h2>
-                <div className="text-sm text-gray-600">
-                  {totalPages > 0 ? `Page ${currentPage} of ${totalPages}` : 'No results'}
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto">
-              {tests?.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-gray-500">
-                  No {filter === 'all' ? '' : filter} tests found
-                </div>
-              ) : (
-                tests?.map((test) => (
-                  <div
-                    key={test.id}
-                    onClick={() => setSelectedTest(test)}
-                    className={`p-4 border-b cursor-pointer hover:bg-gray-50 transition-colors ${
-                      selectedTest?.id === test.id ? 'bg-purple-50 border-purple-200' : ''
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className={`px-2 py-1 text-xs rounded-full ${getCheckTypeColor(test.check_type)}`}>
-                            {test.check_type}
-                          </span>
-                          <span className={`px-2 py-1 text-xs rounded-full ${getResultColor(test.check_result)}`}>
-                            {test.check_result}
-                          </span>
-                        </div>
-                        {test.error_message && (
-                          <p className="text-sm text-gray-600 mt-1">
-                            {test.error_message}
-                          </p>
-                        )}
-                        <p className="text-xs text-gray-500 mt-1">
-                          {new Date(test.created_at).toLocaleDateString()} {new Date(test.created_at).toLocaleTimeString()}
-                        </p>
-                      </div>
-                      
-                      <div className="text-right">
-                        <div className="text-xs text-gray-500">Dataset</div>
-                        <div className="text-sm font-medium">
-                          {datasets?.find(d => d.id === test.dataset_id)?.name || 'Unknown'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))
+          {/* Sidebar Header */}
+          <div className="p-4 border-b border-gray-200 flex-shrink-0">
+            <div className="flex justify-between items-center">
+              <h2 className="font-semibold text-gray-900">
+                Tests ({(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, totalCount)} of {totalCount.toLocaleString()})
+              </h2>
+              {totalPages > 1 && (
+                <span className="text-xs text-gray-500">
+                  Page {currentPage}/{totalPages}
+                </span>
               )}
             </div>
-
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
-              <div className="p-4 border-t bg-gray-50 flex justify-between items-center flex-shrink-0">
-                <button
-                  onClick={() => setCurrentPage(prev => prev - 1)}
-                  disabled={!hasPrevPage}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    hasPrevPage
-                      ? 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  ← Previous
-                </button>
-                
-                <div className="flex items-center space-x-4">
-                  <span className="text-sm text-gray-600">
-                    Page {currentPage} of {totalPages}
-                  </span>
-                  <span className="text-xs text-gray-500">
-                    ({((currentPage - 1) * pageSize + 1).toLocaleString()}-{Math.min(currentPage * pageSize, totalCount).toLocaleString()} of {totalCount.toLocaleString()})
-                  </span>
+          </div>
+          
+          {/* Tests List */}
+          <div className="flex-1 overflow-y-auto">
+            {tests?.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-gray-500 p-4">
+                <div className="text-center">
+                  <p>No {filter === 'all' ? '' : filter} tests found</p>
+                  <p className="text-xs mt-1">Try adjusting your filters</p>
                 </div>
-                
-                <button
-                  onClick={() => setCurrentPage(prev => prev + 1)}
-                  disabled={!hasNextPage}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    hasNextPage
-                      ? 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              </div>
+            ) : (
+              tests?.map((test) => (
+                <div
+                  key={test.id}
+                  onClick={() => setSelectedTest(test)}
+                  className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
+                    selectedTest?.id === test.id ? 'bg-purple-50 border-purple-200' : ''
                   }`}
                 >
-                  Next →
-                </button>
-              </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className={`px-2 py-1 text-xs rounded-full font-medium ${getCheckTypeColor(test.check_type)}`}>
+                          {test.check_type}
+                        </span>
+                        <span className={`px-2 py-1 text-xs rounded-full font-medium ${getResultColor(test.check_result)}`}>
+                          {test.check_result}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {datasets?.find(d => d.id === test.dataset_id)?.name || 'Unknown'}
+                      </div>
+                    </div>
+                    
+                    {test.error_message && (
+                      <p className="text-sm text-gray-700 leading-tight">
+                        {test.error_message}
+                      </p>
+                    )}
+                    
+                    <div className="flex justify-between items-center text-xs text-gray-500">
+                      <span>ID: {test.snapshot_id.slice(0, 8)}...</span>
+                      <span>{new Date(test.created_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </div>
+              ))
             )}
           </div>
 
-          {/* Test Details & Statistics */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="p-6 border-b">
-              <h2 className="text-xl font-semibold">
-                {selectedTest ? 'Test Details' : 'Test Statistics'}
-              </h2>
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="p-3 border-t border-gray-200 bg-gray-50 flex justify-between items-center flex-shrink-0">
+              <button
+                onClick={() => setCurrentPage(prev => prev - 1)}
+                disabled={!hasPrevPage}
+                className={`px-3 py-1 text-sm rounded transition-colors ${
+                  hasPrevPage
+                    ? 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                ← Prev
+              </button>
+              
+              <span className="text-xs text-gray-600">
+                {currentPage} of {totalPages}
+              </span>
+              
+              <button
+                onClick={() => setCurrentPage(prev => prev + 1)}
+                disabled={!hasNextPage}
+                className={`px-3 py-1 text-sm rounded transition-colors ${
+                  hasNextPage
+                    ? 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                Next →
+              </button>
             </div>
-            
-            <div className="p-6">
-              {selectedTest ? (
-                <div>
-                  {/* Test Details */}
-                  <div className="space-y-4">
-                    <div>
-                      <h3 className="text-lg font-medium mb-2">Check Information</h3>
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="text-gray-500">Type:</span>
-                          <span className={`ml-2 px-2 py-1 rounded-full text-xs ${getCheckTypeColor(selectedTest.check_type)}`}>
-                            {selectedTest.check_type}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Result:</span>
-                          <span className={`ml-2 px-2 py-1 rounded-full text-xs ${getResultColor(selectedTest.check_result)}`}>
-                            {selectedTest.check_result}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Snapshot ID:</span>
-                          <span className="ml-2 font-mono text-xs">{selectedTest.snapshot_id.slice(0, 8)}...</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Created:</span>
-                          <span className="ml-2">{new Date(selectedTest.created_at).toLocaleString()}</span>
-                        </div>
-                      </div>
-                    </div>
+          )}
+        </div>
 
-                    {selectedTest.error_message && (
-                      <div>
-                        <h3 className="text-lg font-medium mb-2">Error Details</h3>
-                        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                          <p className="text-red-800">{selectedTest.error_message}</p>
-                          {selectedTest.error_details && (
-                            <pre className="mt-2 text-xs text-red-600 overflow-auto">
-                              {JSON.stringify(selectedTest.error_details, null, 2)}
-                            </pre>
-                          )}
-                        </div>
-                      </div>
-                    )}
+        {/* Right Side - Map */}
+        <div className="flex-1 relative">
+          {selectedTest ? (
+            <>
+              <TestMap
+                className="h-full"
+                geometryData={geometryData}
+                testInfo={{
+                  check_type: selectedTest.check_type,
+                  check_result: selectedTest.check_result,
+                  error_message: selectedTest.error_message
+                }}
+                isLoading={geometryLoading}
+                error={geometryError}
+              />
+              
+              {/* Map Overlay - Test Details */}
+              <div className="absolute top-4 right-4 bg-white rounded-lg shadow-lg p-4 max-w-sm">
+                <h3 className="font-semibold text-gray-900 mb-2">Test Details</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <span className={`px-2 py-1 text-xs rounded-full ${getCheckTypeColor(selectedTest.check_type)}`}>
+                      {selectedTest.check_type}
+                    </span>
+                    <span className={`px-2 py-1 text-xs rounded-full ${getResultColor(selectedTest.check_result)}`}>
+                      {selectedTest.check_result}
+                    </span>
                   </div>
-                </div>
-              ) : (
-                <div>
-                  {/* Statistics */}
-                  {stats && (
-                    <div className="space-y-6">
-                      <h3 className="text-lg font-medium">Test Results Summary</h3>
-                      
-                      {Object.entries(stats.check_stats).map(([checkType, results]) => (
-                        <div key={checkType} className="border rounded-lg p-4">
-                          <h4 className={`font-medium mb-3 px-2 py-1 rounded inline-block ${getCheckTypeColor(checkType)}`}>
-                            {checkType} Tests
-                          </h4>
-                          <div className="grid grid-cols-3 gap-4">
-                            {Object.entries(results).map(([result, count]) => (
-                              <div key={result} className="text-center">
-                                <div className={`text-2xl font-bold mb-1 ${
-                                  result === 'PASS' ? 'text-green-600' :
-                                  result === 'FAIL' ? 'text-red-600' :
-                                  'text-yellow-600'
-                                }`}>
-                                  {count}
-                                </div>
-                                <div className="text-sm text-gray-600 capitalize">{result.toLowerCase()}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                  
+                  {selectedTest.error_message && (
+                    <div>
+                      <span className="font-medium text-gray-700">Issue:</span>
+                      <p className="text-gray-600 mt-1">{selectedTest.error_message}</p>
                     </div>
                   )}
+                  
+                  <div className="pt-2 border-t border-gray-200 space-y-1 text-xs text-gray-500">
+                    <div>Dataset: {datasets?.find(d => d.id === selectedTest.dataset_id)?.name}</div>
+                    <div>Snapshot: {selectedTest.snapshot_id.slice(0, 8)}...</div>
+                    <div>Detected: {new Date(selectedTest.created_at).toLocaleString()}</div>
+                  </div>
                 </div>
-              )}
+              </div>
+            </>
+          ) : (
+            <div className="h-full flex items-center justify-center bg-gray-100">
+              <div className="text-center text-gray-500">
+                <div className="text-6xl mb-4">🗺️</div>
+                <h3 className="text-xl font-medium mb-2">Select a Test to View</h3>
+                <p className="text-gray-400">Click on a test from the sidebar to see its geometry on the map</p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

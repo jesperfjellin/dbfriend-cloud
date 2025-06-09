@@ -414,6 +414,16 @@ class GeometryService:
         start_time = datetime.now(timezone.utc)
         
         try:
+            # Clear existing spatial checks for this dataset before running new ones
+            # This prevents accumulation of old results
+            delete_result = await self.db.execute(
+                text("DELETE FROM spatial_checks WHERE dataset_id = :dataset_id"),
+                {"dataset_id": dataset.id}
+            )
+            deleted_count = delete_result.rowcount
+            if deleted_count > 0:
+                logger.info(f"🧹 Cleared {deleted_count} existing spatial checks for dataset {dataset.name}")
+            
             import asyncpg
             
             # Connect to external PostGIS database
@@ -589,19 +599,43 @@ class GeometryService:
     async def get_geometry_as_geojson(self, snapshot_id: UUID) -> Optional[Dict[str, Any]]:
         """Get geometry as GeoJSON for frontend visualization."""
         try:
+            # First check if snapshot exists
+            snapshot_result = await self.db.execute(
+                select(GeometrySnapshot).where(GeometrySnapshot.id == snapshot_id)
+            )
+            snapshot = snapshot_result.scalar_one_or_none()
+            
+            if not snapshot:
+                logger.error(f"Snapshot {snapshot_id} not found in database")
+                return None
+            
+            logger.info(f"Converting geometry for snapshot {snapshot_id} to GeoJSON")
+            
+            # Convert geometry to GeoJSON using PostGIS with raw SQL
+            # Note: geometry column is added manually via SQL, not in SQLAlchemy model
             result = await self.db.execute(
-                select(spatial_func.ST_AsGeoJSON(GeometrySnapshot.geometry))
-                .where(GeometrySnapshot.id == snapshot_id)
+                text("""
+                    SELECT ST_AsGeoJSON(geometry) 
+                    FROM geometry_snapshots 
+                    WHERE id = :snapshot_id
+                """),
+                {"snapshot_id": snapshot_id}
             )
             geojson_text = result.scalar()
             
             if geojson_text:
                 import json
-                return json.loads(geojson_text)
-            return None
+                geojson_data = json.loads(geojson_text)
+                logger.info(f"Successfully converted geometry for snapshot {snapshot_id} to GeoJSON: {geojson_data['type']}")
+                return geojson_data
+            else:
+                logger.error(f"ST_AsGeoJSON returned null for snapshot {snapshot_id} - geometry column may be null")
+                return None
             
         except Exception as e:
-            logger.error(f"Error converting geometry to GeoJSON: {e}")
+            logger.error(f"Error converting geometry to GeoJSON for snapshot {snapshot_id}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return None
     
     async def calculate_geometry_difference(
