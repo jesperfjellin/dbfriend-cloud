@@ -48,6 +48,30 @@ async def reset_database_completely() -> None:
         try:
             await conn.run_sync(Base.metadata.create_all)
             print("✓ Tables created successfully")
+            
+            # Add geometry column manually without typmod restrictions
+            print("🔗 Adding mixed-dimension geometry column...")
+            await conn.execute(text("""
+                ALTER TABLE geometry_snapshots ADD COLUMN geometry geometry
+            """))
+            print("✓ Geometry column added without dimension restrictions")
+            
+            # Manually register in geometry_columns for PostGIS awareness
+            print("📝 Registering geometry column...")
+            await conn.execute(text("""
+                INSERT INTO geometry_columns 
+                (f_table_catalog, f_table_schema, f_table_name, f_geometry_column, coord_dimension, srid, type)
+                VALUES ('', 'public', 'geometry_snapshots', 'geometry', 4, 4326, 'GEOMETRY')
+            """))
+            print("✓ Geometry column registered with mixed-dimension support")
+            
+            # Add geometry index
+            print("📊 Creating geometry index...")
+            await conn.execute(text("""
+                CREATE INDEX idx_geometry_snapshots_geom ON geometry_snapshots USING GIST (geometry)
+            """))
+            print("✓ Geometry index created")
+            
         except Exception as exc:
             print(f"❌ Error creating tables: {exc}")
             raise

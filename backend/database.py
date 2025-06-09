@@ -122,8 +122,8 @@ class GeometrySnapshot(Base):
     attributes_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     composite_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
-    # mixed-dimension geometry column (supports 2D, 3D, 4D)
-    geometry = Column(Geometry("GEOMETRY", srid=4326, dimension=4), nullable=False)
+    # mixed-dimension geometry column - defined manually via SQL after table creation
+    # We'll add this column via raw SQL to ensure proper mixed-dimension support
 
     attributes: Mapped[dict | None] = mapped_column(JSON)
 
@@ -135,14 +135,7 @@ class GeometrySnapshot(Base):
         Index("idx_geometry_snapshots_dataset", "dataset_id"),
         Index("idx_geometry_snapshots_geom_hash", "geometry_hash"),
         Index("idx_geometry_snapshots_composite_hash", "composite_hash"),
-        Index(
-            "idx_geometry_snapshots_geom",
-            "geometry",
-            postgresql_using="gist",
-        ),
-        CheckConstraint(
-            "ST_SRID(geometry) = 4326", name="enforce_srid_geometry"
-        ),
+        # Geometry index will be added manually after column creation
     )
 
 
