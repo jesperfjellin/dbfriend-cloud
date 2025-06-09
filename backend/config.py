@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = Field(default=False, description="Enable debug mode")
     
+    # Database startup behavior
+    PRESERVE_CONNECTIONS_ON_RESTART: bool = Field(
+        default=True, 
+        description="Preserve dataset connections on restart (production behavior)"
+    )
+    
     # Database settings
     DATABASE_URL: str = Field(
         default="postgresql+asyncpg://dbfriend:password@localhost:5432/dbfriend_cloud",

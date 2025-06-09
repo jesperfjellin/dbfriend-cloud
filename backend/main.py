@@ -43,6 +43,10 @@ async def lifespan(app: FastAPI):
     """Handle application startup and shutdown."""
     # Startup
     logger.info("[cyan]🚀 Starting dbfriend-cloud...[/cyan]")
+    if settings.PRESERVE_CONNECTIONS_ON_RESTART:
+        logger.info("[yellow]📋 Smart restart mode: preserving dataset connections[/yellow]")
+    else:
+        logger.info("[yellow]🧹 Full reset mode: clearing all data[/yellow]")
     await init_db()
     logger.info("[green]✓ dbfriend-cloud ready[/green]")
     

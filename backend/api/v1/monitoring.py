@@ -109,6 +109,35 @@ async def get_storage_by_dataset(db: AsyncSession = Depends(get_db)):
     }
 
 
+@router.post("/reset-monitoring")
+async def reset_monitoring_data(db: AsyncSession = Depends(get_db)):
+    """
+    Reset monitoring data while preserving dataset connections.
+    This is useful for administrators who want to clear accumulated monitoring
+    data without restarting the service or losing connection configurations.
+    """
+    
+    from database import _smart_restart_reset
+    
+    try:
+        async with db.begin():
+            # Use the same smart reset logic as startup
+            await _smart_restart_reset(db.connection())
+            
+        return {
+            "status": "success",
+            "message": "Monitoring data reset successfully",
+            "preserved": "Dataset connections and configurations",
+            "cleared": "Snapshots, diffs, spatial checks, and monitoring state"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error", 
+            "message": f"Failed to reset monitoring data: {str(e)}"
+        }
+
+
 @router.get("/health")
 async def get_system_health(db: AsyncSession = Depends(get_db)):
     """

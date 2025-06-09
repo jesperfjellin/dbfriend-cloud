@@ -214,16 +214,27 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Drop-and-create all tables (dev only) and apply optimisations."""
+    """Initialize database with smart restart behavior."""
     import logging
+    from config import settings
 
     logger = logging.getLogger("dbfriend-cloud")
     try:
         async with engine.begin() as conn:
             # Ensure PostGIS extension is enabled first
             await _ensure_postgis_extension(conn)
-            await conn.run_sync(Base.metadata.drop_all)
-            await conn.run_sync(Base.metadata.create_all)
+            
+            # Check startup behavior - preserve connections or full reset
+            if settings.PRESERVE_CONNECTIONS_ON_RESTART:
+                # Smart restart: Preserve connections, reset monitoring
+                logger.info("🔄 Smart restart: preserving dataset connections, resetting monitoring")
+                await _smart_restart_reset(conn)
+            else:
+                # Full reset: Clean slate (useful for development)
+                logger.info("🧹 Full reset: dropping all data including connections")
+                await conn.run_sync(Base.metadata.drop_all)
+                await conn.run_sync(Base.metadata.create_all)
+                
             await _apply_postgres_optimizations(conn)
         logger.info("✓ dbfriend-cloud database initialised")
     except Exception as exc:  # pragma: no cover
@@ -242,6 +253,76 @@ async def _ensure_postgis_extension(conn) -> None:
     except Exception as exc:
         logger.warning(f"Could not enable PostGIS extension: {exc}")
         raise RuntimeError("PostGIS extension is required but could not be enabled") from exc
+
+
+async def _smart_restart_reset(conn) -> None:
+    """
+    Smart restart: Preserve dataset connections, reset monitoring data.
+    This prevents complex versioning issues from missed changes during downtime.
+    """
+    import logging
+    
+    logger = logging.getLogger("dbfriend-cloud")
+    
+    # First ensure all tables exist
+    await conn.run_sync(Base.metadata.create_all)
+    logger.info("✓ Ensured all tables exist")
+    
+    # Clear monitoring data in dependency order (preserve datasets table)
+    await conn.execute(text("DELETE FROM spatial_checks"))
+    logger.info("✓ Cleared spatial_checks")
+    
+    await conn.execute(text("DELETE FROM geometry_diffs")) 
+    logger.info("✓ Cleared geometry_diffs")
+    
+    await conn.execute(text("DELETE FROM geometry_snapshots"))
+    logger.info("✓ Cleared geometry_snapshots")
+    
+    # Reset monitoring state in datasets table (preserve connection configs)
+    datasets_reset = await conn.execute(text("""
+        UPDATE datasets SET 
+            last_check_at = NULL,
+            connection_status = 'unknown',
+            connection_error = NULL,
+            last_connection_test = NULL
+        WHERE true
+    """))
+    
+    # Get count of preserved datasets
+    result = await conn.execute(text("SELECT COUNT(*) FROM datasets WHERE is_active = true"))
+    active_datasets = result.scalar()
+    
+    logger.info(f"✓ Reset monitoring state for {active_datasets} dataset connections")
+    
+    # Clean geometry_columns view if needed
+    await conn.execute(text("""
+        DELETE FROM geometry_columns 
+        WHERE f_table_name IN ('geometry_snapshots','geometry_diffs')
+    """))
+    logger.info("✓ Cleaned PostGIS metadata")
+    
+    # Re-add geometry column for snapshots if needed
+    try:
+        await conn.execute(text("""
+            ALTER TABLE geometry_snapshots ADD COLUMN IF NOT EXISTS geometry geometry
+        """))
+        
+        await conn.execute(text("""
+            INSERT INTO geometry_columns 
+            (f_table_catalog, f_table_schema, f_table_name, f_geometry_column, coord_dimension, srid, type)
+            VALUES ('', 'public', 'geometry_snapshots', 'geometry', 4, 4326, 'GEOMETRY')
+            ON CONFLICT DO NOTHING
+        """))
+        
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_geometry_snapshots_geom 
+            ON geometry_snapshots USING GIST (geometry)
+        """))
+        
+    except Exception as e:
+        logger.debug(f"Geometry column setup (non-critical): {e}")
+    
+    logger.info(f"📊 Smart restart complete: {active_datasets} connections preserved, monitoring reset")
 
 
 async def _apply_postgres_optimizations(conn) -> None:
