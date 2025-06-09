@@ -54,6 +54,22 @@ class GeometryService:
         composite_string = f"geom:{geometry_hash}|attrs:{attributes_hash}"
         return hashlib.md5(composite_string.encode('utf-8')).hexdigest()
     
+    @staticmethod
+    def create_wkt_element(geometry_wkb: bytes, srid: int = 4326) -> WKTElement:
+        """
+        Create a WKTElement from WKB that handles 2D/3D/4D geometries safely.
+        Returns WKTElement compatible with PostGIS.
+        """
+        try:
+            geom = wkb.loads(geometry_wkb)
+            # Let PostGIS handle the geometry as-is, don't force dimensions
+            wkt_string = geom.wkt
+            return WKTElement(f"SRID={srid};{wkt_string}")
+        except Exception as e:
+            logger.error(f"Error creating WKT from WKB: {e}")
+            # Fallback: try to get basic geometry info
+            return WKTElement(f"SRID={srid};POINT EMPTY")
+    
     async def monitor_dataset_changes(
         self, 
         dataset: Dataset,
@@ -139,7 +155,7 @@ class GeometryService:
                                 geometry_hash=geometry_hash,
                                 attributes_hash=attributes_hash,
                                 composite_hash=composite_hash,
-                                geometry=WKTElement(f"SRID=4326;{wkb.loads(geometry_wkb).wkt}"),
+                                geometry=self.create_wkt_element(geometry_wkb),
                                 attributes=attributes
                             )
                             self.db.add(snapshot)
@@ -183,7 +199,7 @@ class GeometryService:
                                             geometry_hash=geometry_hash,
                                             attributes_hash=attributes_hash,
                                             composite_hash=composite_hash,
-                                            geometry=WKTElement(f"SRID=4326;{wkb.loads(geometry_wkb).wkt}"),
+                                            geometry=self.create_wkt_element(geometry_wkb),
                                             attributes=attributes
                                         )
                                         self.db.add(snapshot)
@@ -201,7 +217,7 @@ class GeometryService:
                                         geometry_hash=geometry_hash,
                                         attributes_hash=attributes_hash,
                                         composite_hash=composite_hash,
-                                        geometry=WKTElement(f"SRID=4326;{wkb.loads(geometry_wkb).wkt}"),
+                                        geometry=self.create_wkt_element(geometry_wkb),
                                         attributes=attributes
                                     )
                                     self.db.add(snapshot)
@@ -264,7 +280,7 @@ class GeometryService:
                                         geometry_hash=geometry_hash,
                                         attributes_hash=attributes_hash,
                                         composite_hash=composite_hash,
-                                        geometry=WKTElement(f"SRID=4326;{wkb.loads(geometry_wkb).wkt}"),
+                                        geometry=self.create_wkt_element(geometry_wkb),
                                         attributes=attributes
                                     )
                                     self.db.add(snapshot)

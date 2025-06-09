@@ -106,31 +106,32 @@ class DevelopmentWorker:
                     
                     if should_check:
                         try:
-                            # Create geometry service and monitor changes
-                            geometry_service = GeometryService(db)
-                            
-                            logger.info(f"🔍 Starting change monitoring for dataset: {dataset.name}")
-                            
-                            # Use the new change monitoring method
-                            response = await geometry_service.monitor_dataset_changes(
-                                dataset, force_reimport=False
-                            )
-                            
-                            # Update dataset status
-                            dataset.last_check_at = datetime.now(timezone.utc)
-                            dataset.connection_status = "success" if response.status == "SUCCESS" else "failed"
-                            if response.status == "FAILED":
-                                dataset.connection_error = response.error_message
-                            else:
-                                dataset.connection_error = None
+                            # Create geometry service with fresh session for each dataset
+                            async with AsyncSessionLocal() as dataset_db:
+                                geometry_service = GeometryService(dataset_db)
                                 
-                            await db.commit()
-                            
-                            logger.info(f"✅ Change monitoring completed for {dataset.name}: "
-                                       f"{response.snapshots_created} new snapshots, "
-                                       f"{response.diffs_detected} issues flagged")
-                            
-                            monitored += 1
+                                logger.info(f"🔍 Starting change monitoring for dataset: {dataset.name}")
+                                
+                                # Use the new change monitoring method
+                                response = await geometry_service.monitor_dataset_changes(
+                                    dataset, force_reimport=False
+                                )
+                                
+                                # Update dataset status in main session
+                                dataset.last_check_at = datetime.now(timezone.utc)
+                                dataset.connection_status = "success" if response.status == "SUCCESS" else "failed"
+                                if response.status == "FAILED":
+                                    dataset.connection_error = response.error_message
+                                else:
+                                    dataset.connection_error = None
+                                    
+                                await db.commit()
+                                
+                                logger.info(f"✅ Change monitoring completed for {dataset.name}: "
+                                           f"{response.snapshots_created} new snapshots, "
+                                           f"{response.diffs_detected} issues flagged")
+                                
+                                monitored += 1
                             
                         except Exception as e:
                             logger.error(f"❌ Error monitoring dataset {dataset.name}: {e}")
@@ -143,6 +144,7 @@ class DevelopmentWorker:
                 
             except Exception as e:
                 logger.error(f"❌ Error in change detection cycle: {e}")
+                await db.rollback()
     
     async def _run_quality_checks(self):
         """Run quality checks on all datasets (separate from change detection)."""
@@ -162,21 +164,23 @@ class DevelopmentWorker:
                 
                 for dataset in datasets:
                     try:
-                        geometry_service = GeometryService(db)
-                        
-                        logger.info(f"🧪 Running quality checks for dataset: {dataset.name}")
-                        
-                        # Run quality checks
-                        check_results = await geometry_service.run_quality_checks(dataset)
-                        
-                        if "error" not in check_results:
-                            total_checks += sum(v for k, v in check_results.items() if k.endswith('_checks'))
-                            failed_checks += check_results.get('failed_checks', 0)
+                        # Create geometry service with fresh session for each dataset
+                        async with AsyncSessionLocal() as dataset_db:
+                            geometry_service = GeometryService(dataset_db)
                             
-                            logger.info(f"✅ Quality checks completed for {dataset.name}: {check_results}")
-                        else:
-                            logger.error(f"❌ Quality checks failed for {dataset.name}: {check_results['error']}")
+                            logger.info(f"🧪 Running quality checks for dataset: {dataset.name}")
                             
+                            # Run quality checks
+                            check_results = await geometry_service.run_quality_checks(dataset)
+                            
+                            if "error" not in check_results:
+                                total_checks += sum(v for k, v in check_results.items() if k.endswith('_checks'))
+                                failed_checks += check_results.get('failed_checks', 0)
+                                
+                                logger.info(f"✅ Quality checks completed for {dataset.name}: {check_results}")
+                            else:
+                                logger.error(f"❌ Quality checks failed for {dataset.name}: {check_results['error']}")
+                                
                     except Exception as e:
                         logger.error(f"❌ Error running quality checks for dataset {dataset.name}: {e}")
                 
@@ -185,6 +189,7 @@ class DevelopmentWorker:
                 
             except Exception as e:
                 logger.error(f"❌ Error in quality check cycle: {e}")
+                await db.rollback()
 
 
 async def main():

@@ -4,148 +4,115 @@
 
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
-import { datasetApi, diffsApi } from '@/lib/api'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
 
+// Simple dashboard overview
 export default function HomePage() {
-  // Fetch data from backend (like requests.get() but reactive)
-  const { data: datasets, isLoading: datasetsLoading } = useQuery({
-    queryKey: ['datasets'],
-    queryFn: datasetApi.list,
-  })
-
-  const { data: pendingCount, isLoading: pendingLoading } = useQuery({
-    queryKey: ['pending-count'],
-    queryFn: () => diffsApi.getPendingCount(),
-  })
-
-  // Loading state (like waiting for requests to complete)
-  if (datasetsLoading || pendingLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading dashboard...</p>
-        </div>
-      </div>
-    )
-  }
+  // We can add real API calls later, for now just a nice landing page
+  
+  const features = [
+    {
+      title: 'Database Connections',
+      description: 'Connect to your PostGIS databases to monitor spatial data quality and detect changes.',
+      href: '/datasets',
+      color: 'bg-blue-50 text-blue-700 border-blue-200'
+    },
+    {
+      title: 'Diff Queue',
+      description: 'Review detected geometry changes with Git-style accept/reject workflow.',
+      href: '/diffs',
+      color: 'bg-orange-50 text-orange-700 border-orange-200'
+    },
+    {
+      title: 'System Monitoring',
+      description: 'Monitor storage usage, system health, and performance metrics.',
+      href: '/monitoring',
+      color: 'bg-green-50 text-green-700 border-green-200'
+    }
+  ]
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* This is like using a Django template */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <h1 className="text-3xl font-bold text-gray-900">
-            dbfriend-cloud
+      <div className="max-w-7xl mx-auto px-4 py-12">
+        
+        {/* Hero Section */}
+        <div className="text-center mb-16">
+          <h1 className="text-4xl font-bold text-gray-900 mb-4">
+            Welcome to dbfriend-cloud
           </h1>
-          <p className="text-gray-600 mt-2">
-            PostGIS geometry diff checker - like Git but for spatial data
+          <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
+            SaaS for geometry-diff QA on PostGIS: automated checks + Git-style accept/reject queue 
+            that writes back to your database. Monitor spatial data quality and detect changes automatically.
           </p>
         </div>
-      </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Dashboard Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          
-          {/* Pending Diffs Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center">
-              <div className="ml-4">
-                <h2 className="text-lg font-medium text-gray-900">
-                  Pending Reviews
-                </h2>
-                                 <p className="text-2xl font-bold text-yellow-600">
-                   {pendingCount?.pending_count || 0}
-                 </p>
-              </div>
-            </div>
-            <p className="text-sm text-gray-500 mt-2">
-              Geometry changes waiting for review
-            </p>
-          </div>
-
-          {/* Active Datasets Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center">
-              <div className="ml-4">
-                <h2 className="text-lg font-medium text-gray-900">
-                  Active Datasets
-                </h2>
-                                 <p className="text-2xl font-bold text-blue-600">
-                   {datasets?.length || 0}
-                 </p>
-              </div>
-            </div>
-            <p className="text-sm text-gray-500 mt-2">
-              Spatial tables being monitored
-            </p>
-          </div>
-
-          {/* Recent Activity Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center">
-              <div className="ml-4">
-                <h2 className="text-lg font-medium text-gray-900">
-                  Last Check
-                </h2>
-                <p className="text-lg font-bold text-green-600">
-                  Never {/* We'll make this dynamic later */}
+        {/* Feature Cards */}
+        <div className="grid md:grid-cols-3 gap-8 mb-16">
+          {features.map((feature) => (
+            <Link 
+              key={feature.title}
+              href={feature.href}
+              className="group"
+            >
+              <div className={`p-8 rounded-xl border-2 transition-all hover:shadow-lg hover:scale-105 ${feature.color}`}>
+                <h3 className="text-xl font-semibold mb-3">{feature.title}</h3>
+                <p className="text-sm leading-relaxed opacity-80 group-hover:opacity-100 transition-opacity">
+                  {feature.description}
                 </p>
-              </div>
-            </div>
-            <p className="text-sm text-gray-500 mt-2">
-              Most recent geometry import
-            </p>
-          </div>
-        </div>
-
-        {/* Quick Actions */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Quick Actions
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Link 
-              href="/datasets"
-              className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <div>
-                <div className="font-medium text-gray-900">Manage Databases</div>
-                <div className="text-sm text-gray-500">Configure connections</div>
-              </div>
-            </Link>
-
-            <Link 
-              href="/monitoring"
-              className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <div>
-                <div className="font-medium text-gray-900">Change Monitor</div>
-                <div className="text-sm text-gray-500">Track data changes</div>
-              </div>
-            </Link>
-            
-            <Link 
-              href="/diffs"
-              className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <div>
-                <div className="font-medium text-gray-900">Review Diffs</div>
-                <div className="text-sm text-gray-500">
-                  {pendingCount?.pending_count && pendingCount.pending_count > 0 
-                    ? `${pendingCount.pending_count} pending` 
-                    : 'No pending reviews'
-                  }
+                <div className="mt-4 text-sm font-medium opacity-60 group-hover:opacity-100 transition-opacity">
+                  Get started →
                 </div>
               </div>
             </Link>
+          ))}
+        </div>
+
+        {/* Quick Stats */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">System Overview</h2>
+          <div className="grid md:grid-cols-4 gap-6">
+            <div className="text-center">
+              <div className="text-3xl font-bold text-blue-600 mb-2">-</div>
+              <div className="text-sm text-gray-600">Active Datasets</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-orange-600 mb-2">-</div>
+              <div className="text-sm text-gray-600">Pending Diffs</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-green-600 mb-2">-</div>
+              <div className="text-sm text-gray-600">Snapshots Stored</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-purple-600 mb-2">-</div>
+              <div className="text-sm text-gray-600">Storage Used</div>
+            </div>
+          </div>
+          <div className="mt-6 text-center">
+            <Link 
+              href="/monitoring" 
+              className="text-blue-600 hover:text-blue-700 font-medium text-sm"
+            >
+              View detailed metrics →
+            </Link>
           </div>
         </div>
 
-      </main>
+        {/* Getting Started */}
+        <div className="mt-16 text-center">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Getting Started</h2>
+          <p className="text-gray-600 mb-8 max-w-2xl mx-auto">
+            Connect your first PostGIS database to start monitoring spatial data quality and detecting changes automatically.
+          </p>
+          <Link 
+            href="/datasets"
+            className="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+          >
+            Add Your First Database
+          </Link>
+        </div>
+      </div>
     </div>
   )
 } 
