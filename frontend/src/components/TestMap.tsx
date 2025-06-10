@@ -9,13 +9,21 @@ import { useEffect, useRef, useState } from 'react'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 
+interface GeometryContext {
+  geometry: GeoJSON.Geometry | GeoJSON.Feature
+  isPrimary?: boolean // The main flagged geometry
+  id?: string
+  attributes?: any
+}
+
 interface TestMapProps {
   className?: string
-  geometry?: GeoJSON.Geometry | GeoJSON.Feature // Support both direct geometry and Feature
+  geometry?: GeoJSON.Geometry | GeoJSON.Feature // Single geometry (backward compatibility)
+  geometries?: GeometryContext[] // Multiple geometries with context
   highlightError?: boolean
 }
 
-export default function TestMap({ className = '', geometry, highlightError = true }: TestMapProps) {
+export default function TestMap({ className = '', geometry, geometries, highlightError = true }: TestMapProps) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstance = useRef<mapboxgl.Map | null>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
@@ -124,6 +132,66 @@ export default function TestMap({ className = '', geometry, highlightError = tru
     return null
   }
 
+  // Helper function to add geometry layers based on type
+  const addGeometryLayers = (map: mapboxgl.Map, prefix: string, geomType: string | undefined, fillColor: string, strokeColor: string) => {
+    const sourceId = `${prefix}-source`
+    const geomPrefix = geomType?.toLowerCase().replace('multi', '') || 'unknown'
+    
+    if (geomType === 'Polygon' || geomType === 'MultiPolygon') {
+      // Add fill layer for polygons
+      map.addLayer({
+        id: `${prefix}-${geomPrefix}-fill`,
+        type: 'fill',
+        source: sourceId,
+        filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
+        paint: {
+          'fill-color': fillColor,
+          'fill-opacity': prefix === 'primary' ? 0.3 : 0.15,
+        },
+      })
+      
+      // Add outline
+      map.addLayer({
+        id: `${prefix}-${geomPrefix}-line`,
+        type: 'line',
+        source: sourceId,
+        filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
+        paint: {
+          'line-color': strokeColor,
+          'line-width': prefix === 'primary' ? 3 : 2,
+        },
+      })
+    } else if (geomType === 'LineString' || geomType === 'MultiLineString') {
+      // Add line layer
+      map.addLayer({
+        id: `${prefix}-${geomPrefix}-line`,
+        type: 'line',
+        source: sourceId,
+        filter: ['in', ['geometry-type'], ['literal', ['LineString', 'MultiLineString']]],
+        paint: {
+          'line-color': strokeColor,
+          'line-width': prefix === 'primary' ? 4 : 2,
+        },
+      })
+    } else if (geomType === 'Point' || geomType === 'MultiPoint') {
+      // Add point layer
+      map.addLayer({
+        id: `${prefix}-${geomPrefix}-point`,
+        type: 'circle',
+        source: sourceId,
+        filter: ['in', ['geometry-type'], ['literal', ['Point', 'MultiPoint']]],
+        paint: {
+          'circle-color': fillColor,
+          'circle-radius': prefix === 'primary' ? 10 : 6,
+          'circle-stroke-color': strokeColor,
+          'circle-stroke-width': prefix === 'primary' ? 3 : 2,
+          'circle-opacity': prefix === 'primary' ? 0.8 : 0.6,
+          'circle-stroke-opacity': 1.0,
+        },
+      })
+    }
+  }
+
   // Helper function to extract coordinates recursively
   const extractCoordinates = (coords: any[]): [number, number][] => {
     const result: [number, number][] = []
@@ -150,142 +218,158 @@ export default function TestMap({ className = '', geometry, highlightError = tru
 
   // Update geometry when data changes
   useEffect(() => {
-    if (!mapInstance.current || !mapLoaded || !geometry) return
+    if (!mapInstance.current || !mapLoaded) return
+    
+    // Handle both single geometry and multiple geometries
+    const geometryData = geometries || (geometry ? [{ geometry, isPrimary: true }] : [])
+    
+    if (geometryData.length === 0) return
 
     const map = mapInstance.current
     
-    console.log('Processing geometry data:', geometry)
+    console.log('Processing geometry data:', geometryData)
     
-    // Normalize the geometry data
-    const normalizedGeometry = normalizeGeometry(geometry)
-    if (!normalizedGeometry) {
-      console.error('Could not normalize geometry data')
-      return
-    }
-    
-    console.log('Normalized geometry:', normalizedGeometry)
-    console.log('Geometry type:', normalizedGeometry.geometry?.type)
-    console.log('Geometry coordinates:', (normalizedGeometry.geometry as any)?.coordinates)
-    
-    // Update the geometry type state for the legend
-    setGeometryType(normalizedGeometry.geometry?.type || null)
-
-    // Remove existing geometry layers
-    const layersToRemove = ['geometry-fill', 'geometry-line', 'geometry-point']
-    layersToRemove.forEach(layerId => {
-      if (map.getLayer(layerId)) {
-        map.removeLayer(layerId)
+    // Normalize all geometries
+    const normalizedGeometries = geometryData.map((item, index) => {
+      const normalized = normalizeGeometry(item.geometry)
+      if (!normalized) {
+        console.error(`Could not normalize geometry ${index}`)
+        return null
       }
+      return {
+        feature: normalized,
+        isPrimary: item.isPrimary || false,
+        id: item.id || `geometry-${index}`,
+        attributes: item.attributes
+      }
+    }).filter(Boolean) as Array<{
+      feature: GeoJSON.Feature
+      isPrimary: boolean
+      id: string
+      attributes?: any
+    }>
+    
+    if (normalizedGeometries.length === 0) return
+    
+    console.log('Normalized geometries:', normalizedGeometries)
+    
+    // Update the geometry type state for the legend (use primary geometry type)
+    const primaryGeometry = normalizedGeometries.find(g => g.isPrimary) || normalizedGeometries[0]
+    setGeometryType(primaryGeometry.feature.geometry?.type || null)
+
+    // Remove existing geometry layers (including geometry-type specific ones)
+    const layerPrefixes = ['primary', 'context']
+    const geomTypes = ['polygon', 'linestring', 'point']
+    const layerSuffixes = ['fill', 'line', 'point']
+    
+    layerPrefixes.forEach(prefix => {
+      geomTypes.forEach(geomType => {
+        layerSuffixes.forEach(suffix => {
+          const layerId = `${prefix}-${geomType}-${suffix}`
+          if (map.getLayer(layerId)) {
+            map.removeLayer(layerId)
+          }
+        })
+      })
     })
     
-    if (map.getSource('geometry-source')) {
-      map.removeSource('geometry-source')
+    // Remove existing sources
+    if (map.getSource('primary-source')) {
+      map.removeSource('primary-source')
+    }
+    if (map.getSource('context-source')) {
+      map.removeSource('context-source')
     }
 
     try {
-      // Add the geometry source
-      map.addSource('geometry-source', {
-        type: 'geojson',
-        data: normalizedGeometry,
-      })
+      // Separate primary and context geometries
+      const primaryGeometries = normalizedGeometries.filter(g => g.isPrimary)
+      const contextGeometries = normalizedGeometries.filter(g => !g.isPrimary)
+      
+      console.log(`Adding ${primaryGeometries.length} primary and ${contextGeometries.length} context geometries`)
 
-      const fillColor = highlightError ? '#ef4444' : '#3b82f6'
-      const strokeColor = highlightError ? '#dc2626' : '#2563eb'
+      // Style colors
+      const primaryFillColor = highlightError ? '#ef4444' : '#3b82f6'
+      const primaryStrokeColor = highlightError ? '#dc2626' : '#2563eb'
+      const contextFillColor = '#6b7280' // Gray for context
+      const contextStrokeColor = '#4b5563' // Darker gray
 
-      // Add layers based on geometry type
-      const geomType = normalizedGeometry.geometry?.type
-      console.log('Adding layers for geometry type:', geomType)
-
-      if (geomType === 'Polygon' || geomType === 'MultiPolygon') {
-        // Add fill layer for polygons
-        map.addLayer({
-          id: 'geometry-fill',
-          type: 'fill',
-          source: 'geometry-source',
-          paint: {
-            'fill-color': fillColor,
-            'fill-opacity': 0.3,
-          },
+      // Add primary geometries source and layers
+      if (primaryGeometries.length > 0) {
+        const primaryFeatureCollection: GeoJSON.FeatureCollection = {
+          type: 'FeatureCollection',
+          features: primaryGeometries.map(g => g.feature)
+        }
+        
+        map.addSource('primary-source', {
+          type: 'geojson',
+          data: primaryFeatureCollection,
         })
         
-        // Add outline
-        map.addLayer({
-          id: 'geometry-line',
-          type: 'line',
-          source: 'geometry-source',
-          paint: {
-            'line-color': strokeColor,
-            'line-width': 2,
-          },
+        const primaryGeomType = primaryGeometry.feature.geometry?.type
+        console.log('Adding layers for primary geometry type:', primaryGeomType)
+        addGeometryLayers(map, 'primary', primaryGeomType, primaryFillColor, primaryStrokeColor)
+      }
+      
+      // Add context geometries source and layers
+      if (contextGeometries.length > 0) {
+        const contextFeatureCollection: GeoJSON.FeatureCollection = {
+          type: 'FeatureCollection',
+          features: contextGeometries.map(g => g.feature)
+        }
+        
+        map.addSource('context-source', {
+          type: 'geojson',
+          data: contextFeatureCollection,
         })
-      } else if (geomType === 'LineString' || geomType === 'MultiLineString') {
-        // Add line layer
-        map.addLayer({
-          id: 'geometry-line',
-          type: 'line',
-          source: 'geometry-source',
-          paint: {
-            'line-color': strokeColor,
-            'line-width': 3,
-          },
+        
+        // Only add layers for geometry types that actually exist in context data
+        const geomTypeSet = new Set(contextGeometries.map(g => g.feature.geometry?.type).filter(Boolean))
+        const contextGeomTypes = Array.from(geomTypeSet)
+        console.log('Adding context layers for geometry types:', contextGeomTypes)
+        
+        contextGeomTypes.forEach(geomType => {
+          if (geomType === 'Polygon' || geomType === 'MultiPolygon') {
+            addGeometryLayers(map, 'context', geomType, contextFillColor, contextStrokeColor)
+          } else if (geomType === 'LineString' || geomType === 'MultiLineString') {
+            addGeometryLayers(map, 'context', geomType, contextFillColor, contextStrokeColor)
+          } else if (geomType === 'Point' || geomType === 'MultiPoint') {
+            addGeometryLayers(map, 'context', geomType, contextFillColor, contextStrokeColor)
+          }
         })
-      } else if (geomType === 'Point' || geomType === 'MultiPoint') {
-        // Add point layer
-        console.log('Creating Point layer with colors:', { fillColor, strokeColor })
-        map.addLayer({
-          id: 'geometry-point',
-          type: 'circle',
-          source: 'geometry-source',
-          paint: {
-            'circle-color': fillColor,
-            'circle-radius': 8, // Make larger to ensure visibility
-            'circle-stroke-color': strokeColor,
-            'circle-stroke-width': 3,
-            'circle-opacity': 0.8,
-            'circle-stroke-opacity': 1.0,
-          },
-        })
-        console.log('Point layer added successfully')
       }
 
-      // Calculate bounds more robustly
+
+
+      // Calculate bounds for all geometries
       try {
-        const geomCoords = (normalizedGeometry.geometry as any)?.coordinates || []
-        console.log('Raw geometry coordinates for bounds:', geomCoords)
-        const coords = extractCoordinates(geomCoords)
-        console.log('Extracted coordinates for bounds:', coords)
+        const bounds = new mapboxgl.LngLatBounds()
+        let hasValidCoords = false
         
-        if (coords.length > 0) {
-          const bounds = new mapboxgl.LngLatBounds()
+        normalizedGeometries.forEach((item, index) => {
+          const geomCoords = (item.feature.geometry as any)?.coordinates || []
+          console.log(`Geometry ${index} coordinates:`, geomCoords)
+          const coords = extractCoordinates(geomCoords)
+          
           coords.forEach(([lon, lat]) => {
             if (typeof lon === 'number' && typeof lat === 'number' && 
                 lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90) {
               bounds.extend([lon, lat])
-              console.log('Added to bounds:', [lon, lat])
+              hasValidCoords = true
             }
           })
-          
-          if (!bounds.isEmpty()) {
-            // For Points, use a different zoom strategy
-            if (geomType === 'Point') {
-              const [lon, lat] = coords[0]
-              console.log('Flying to Point:', [lon, lat])
-              map.flyTo({ 
-                center: [lon, lat], 
-                zoom: 15, // Good zoom level for Points
-                duration: 1000 
-              })
-            } else {
-              map.fitBounds(bounds, { 
-                padding: 50, 
-                maxZoom: 18,
-                duration: 1000 // Smooth animation
-              })
-            }
-          }
+        })
+        
+        if (hasValidCoords && !bounds.isEmpty()) {
+          console.log('Fitting bounds to show all geometries')
+          map.fitBounds(bounds, { 
+            padding: 100, // More padding for multiple geometries
+            maxZoom: 16,
+            duration: 1000
+          })
         }
       } catch (boundsError) {
-        console.warn('Could not calculate bounds for geometry:', boundsError)
+        console.warn('Could not calculate bounds for geometries:', boundsError)
         // Fallback to a reasonable view
         map.flyTo({ center: [-122.4194, 37.7749], zoom: 9 })
       }
@@ -294,7 +378,7 @@ export default function TestMap({ className = '', geometry, highlightError = tru
       console.error('Error adding geometry to map:', geometryError)
       setError(`Failed to display geometry: ${geometryError instanceof Error ? geometryError.message : 'Unknown error'}`)
     }
-  }, [geometry, highlightError, mapLoaded])
+  }, [geometry, geometries, highlightError, mapLoaded])
 
   if (error) {
     return (
@@ -332,17 +416,35 @@ export default function TestMap({ className = '', geometry, highlightError = tru
       )}
       
       {/* Map legend/info */}
-      {geometry && mapLoaded && (
+      {(geometry || (geometries && geometries.length > 0)) && mapLoaded && (
         <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-3 text-sm">
-          <h3 className="font-semibold mb-2">Test Geometry</h3>
+          <h3 className="font-semibold mb-2">
+            {geometries && geometries.length > 1 ? 'Geometry Context' : 'Test Geometry'}
+          </h3>
+          
+          {/* Primary geometry indicator */}
           <div className="flex items-center mb-1">
             <div className={`w-4 h-4 rounded mr-2 ${
               highlightError ? 'bg-red-500 opacity-60' : 'bg-blue-500 opacity-60'
             }`}></div>
-            <span>{highlightError ? 'Error Geometry' : 'Test Geometry'}</span>
+            <span>{highlightError ? 'Flagged Geometry' : 'Primary Geometry'}</span>
           </div>
+          
+          {/* Context geometries indicator */}
+          {geometries && geometries.length > 1 && (
+            <div className="flex items-center mb-1">
+              <div className="w-4 h-4 rounded mr-2 bg-gray-500 opacity-60"></div>
+              <span>Context ({geometries.length - 1})</span>
+            </div>
+          )}
+          
           <div className="text-xs text-gray-500">
             Type: {geometryType || 'Unknown'}
+            {geometries && geometries.length > 1 && (
+              <div className="mt-1">
+                500m buffer context
+              </div>
+            )}
           </div>
         </div>
       )}

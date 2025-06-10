@@ -12,6 +12,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { testsApi, datasetApi, geometryApi } from '@/lib/api'
 import { SpatialCheck, Dataset } from '@/types/api'
 import TestMap from '@/components/TestMap'
+import { useGeometryContext } from '@/lib/hooks/useGeometryContext'
 
 export default function TestsPage() {
   const [selectedTest, setSelectedTest] = useState<SpatialCheck | null>(null)
@@ -21,6 +22,9 @@ export default function TestsPage() {
   const [pageSize] = useState(50) // Smaller page size for sidebar
   
   const queryClient = useQueryClient()
+
+  // Geometry context hook for spatial analysis
+  const { contextData, loading: contextLoading, fetchContext, clearContext } = useGeometryContext()
 
   // Fetch available datasets for filtering
   const { data: datasets } = useQuery({
@@ -73,6 +77,16 @@ export default function TestsPage() {
       setSelectedTest(tests[0])
     }
   }, [tests, selectedTest])
+
+  // Fetch spatial context for any selected test to provide spatial context
+  useEffect(() => {
+    if (selectedTest && geometryData) {
+      console.log('Fetching spatial context for test:', selectedTest.check_type, selectedTest.snapshot_id)
+      fetchContext(selectedTest.snapshot_id, 500) // 500m buffer
+    } else {
+      clearContext()
+    }
+  }, [selectedTest, geometryData, fetchContext, clearContext])
 
   // Reset to page 1 when filters change
   const handleFilterChange = (newFilter: typeof filter) => {
@@ -302,7 +316,13 @@ export default function TestsPage() {
             <>
               <TestMap
                 className="h-full"
-                geometry={geometryData?.geometry}
+                geometry={!contextData ? geometryData?.geometry : undefined}
+                geometries={contextData?.geometries.map(item => ({
+                  geometry: item.geometry,
+                  isPrimary: item.is_primary,
+                  id: item.geometry_id,
+                  attributes: item.attributes
+                }))}
                 highlightError={selectedTest.check_result === 'FAIL'}
               />
               
@@ -330,6 +350,17 @@ export default function TestsPage() {
                     <div>Dataset: {datasets?.find(d => d.id === selectedTest.dataset_id)?.name}</div>
                     <div>Snapshot: {selectedTest.snapshot_id.slice(0, 8)}...</div>
                     <div>Detected: {new Date(selectedTest.created_at).toLocaleString()}</div>
+                    {contextLoading && (
+                      <div className="text-blue-600 flex items-center">
+                        <div className="animate-spin rounded-full h-3 w-3 border-b border-blue-600 mr-1"></div>
+                        Loading spatial context...
+                      </div>
+                    )}
+                    {contextData && (
+                      <div className="text-green-600">
+                        Found {contextData.total_found} nearby geometries
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

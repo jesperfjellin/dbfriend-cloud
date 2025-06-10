@@ -184,4 +184,37 @@ export const geometryApi = {
   getGeoJSON: async (snapshot_id: string) => {
     return apiRequest(`/geometry/snapshots/${snapshot_id}/geojson`)
   },
+}
+
+export interface GeometryContextItem {
+  geometry_id: string
+  geometry: GeoJSON.Geometry
+  attributes: any
+  is_primary: boolean
+  distance_meters?: number
+}
+
+export interface GeometryContextResponse {
+  geometries: GeometryContextItem[]
+  buffer_geometry: GeoJSON.Geometry
+  total_found: number
+}
+
+/**
+ * Get spatial context for a geometry - finds other geometries within a buffer
+ */
+export async function getGeometryContext(
+  geometryId: string, 
+  bufferMeters: number = 500,
+  maxResults: number = 50
+): Promise<GeometryContextResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/spatial/geometry-context/${geometryId}?buffer_meters=${bufferMeters}&max_results=${maxResults}`
+  )
+  
+  if (!response.ok) {
+    throw new Error(`Failed to get geometry context: ${response.statusText}`)
+  }
+  
+  return response.json()
 } 
