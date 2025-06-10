@@ -53,12 +53,13 @@ cd backend
 pip install -r requirements.txt
 python _reset_db.py  # Initialize database
 python main.py       # Start FastAPI server
+```
 
 ### Worker Setup
 ```bash
 cd backend
 python worker_dev.py
-
+```
 
 ### Frontend Setup
 ```bash
