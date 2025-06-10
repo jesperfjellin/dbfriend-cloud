@@ -3,8 +3,6 @@
  */
 
 import './globals.css'
-// TODO: Fix MapLibre CSS import issue
-// import 'maplibre-gl/dist/maplibre-gl.css'
 import type { Metadata } from 'next'
 import { Providers } from '@/lib/providers'
 import { Navigation } from '@/components/Navigation'

@@ -11,7 +11,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { testsApi, datasetApi, geometryApi } from '@/lib/api'
 import { SpatialCheck, Dataset } from '@/types/api'
-import { TestMap } from '@/components/TestMap'
+import TestMap from '@/components/TestMap'
 
 export default function TestsPage() {
   const [selectedTest, setSelectedTest] = useState<SpatialCheck | null>(null)
@@ -302,14 +302,6 @@ export default function TestsPage() {
             <>
               <TestMap
                 className="h-full"
-                geometryData={geometryData}
-                testInfo={{
-                  check_type: selectedTest.check_type,
-                  check_result: selectedTest.check_result,
-                  error_message: selectedTest.error_message
-                }}
-                isLoading={geometryLoading}
-                error={geometryError}
               />
               
               {/* Map Overlay - Test Details */}

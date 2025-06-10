@@ -49,26 +49,37 @@ async def reset_database_completely() -> None:
             await conn.run_sync(Base.metadata.create_all)
             print("✓ Tables created successfully")
             
-            # Add geometry column manually without typmod restrictions
-            print("🔗 Adding mixed-dimension geometry column...")
+            # Add geometry column manually without typmod restrictions (if not already created by SQLAlchemy)
+            print("🔗 Ensuring mixed-dimension geometry column...")
             await conn.execute(text("""
-                ALTER TABLE geometry_snapshots ADD COLUMN geometry geometry
+                ALTER TABLE geometry_snapshots ADD COLUMN IF NOT EXISTS geometry geometry
             """))
-            print("✓ Geometry column added without dimension restrictions")
+            print("✓ Geometry column ensured without dimension restrictions")
             
-            # Manually register in geometry_columns for PostGIS awareness
+            # Manually register in geometry_columns for PostGIS awareness (handle duplicates)
             print("📝 Registering geometry column...")
-            await conn.execute(text("""
-                INSERT INTO geometry_columns 
-                (f_table_catalog, f_table_schema, f_table_name, f_geometry_column, coord_dimension, srid, type)
-                VALUES ('', 'public', 'geometry_snapshots', 'geometry', 4, 4326, 'GEOMETRY')
+            
+            # Check if entry already exists
+            result = await conn.execute(text("""
+                SELECT COUNT(*) FROM geometry_columns 
+                WHERE f_table_name = 'geometry_snapshots' AND f_geometry_column = 'geometry'
             """))
-            print("✓ Geometry column registered with mixed-dimension support")
+            exists = result.scalar() > 0
+            
+            if not exists:
+                await conn.execute(text("""
+                    INSERT INTO geometry_columns 
+                    (f_table_catalog, f_table_schema, f_table_name, f_geometry_column, coord_dimension, srid, type)
+                    VALUES ('', 'public', 'geometry_snapshots', 'geometry', 4, 4326, 'GEOMETRY')
+                """))
+                print("✓ Geometry column registered with mixed-dimension support")
+            else:
+                print("✓ Geometry column already registered")
             
             # Add geometry index
             print("📊 Creating geometry index...")
             await conn.execute(text("""
-                CREATE INDEX idx_geometry_snapshots_geom ON geometry_snapshots USING GIST (geometry)
+                CREATE INDEX IF NOT EXISTS idx_geometry_snapshots_geom ON geometry_snapshots USING GIST (geometry)
             """))
             print("✓ Geometry index created")
             

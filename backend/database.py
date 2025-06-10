@@ -101,10 +101,18 @@ class Dataset(Base):
     last_check_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __table_args__ = (
+        # Basic indexes
         Index("idx_datasets_name", "name"),
         Index("idx_datasets_active", "is_active"),
         Index("idx_datasets_host", "host"),
         Index("idx_datasets_connection_status", "connection_status"),
+        
+        # Performance indexes based on ChatGPT feedback
+        Index("idx_datasets_last_check", "last_check_at"),
+        Index("idx_datasets_active_status", "is_active", "connection_status"),
+        
+        # Connection monitoring optimizations
+        Index("idx_datasets_table_location", "host", "database", "schema_name", "table_name"),
     )
 
 
@@ -122,8 +130,11 @@ class GeometrySnapshot(Base):
     attributes_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     composite_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
-    # mixed-dimension geometry column - defined manually via SQL after table creation
-    # We'll add this column via raw SQL to ensure proper mixed-dimension support
+    # Mixed-dimension geometry column - supports 2D/3D/4D geometries
+    geometry: Mapped[Geometry] = mapped_column(
+        Geometry(geometry_type='GEOMETRY', srid=4326, use_typmod=False),
+        nullable=True
+    )
 
     attributes: Mapped[dict | None] = mapped_column(JSON)
 
@@ -132,10 +143,20 @@ class GeometrySnapshot(Base):
     )
 
     __table_args__ = (
+        # Basic indexes
         Index("idx_geometry_snapshots_dataset", "dataset_id"),
         Index("idx_geometry_snapshots_geom_hash", "geometry_hash"),
         Index("idx_geometry_snapshots_composite_hash", "composite_hash"),
-        # Geometry index will be added manually after column creation
+        
+        # Performance indexes based on ChatGPT feedback - critical for avoiding seq scans
+        Index("idx_geometry_snapshots_dataset_geom_hash", "dataset_id", "geometry_hash"),
+        Index("idx_geometry_snapshots_dataset_composite", "dataset_id", "composite_hash"),
+        Index("idx_geometry_snapshots_dataset_created", "dataset_id", "created_at"),
+        
+        # Source ID for external reference lookups
+        Index("idx_geometry_snapshots_source_id", "source_id"),
+        
+        # Geometry spatial index will be added manually after column creation in _smart_restart_reset
     )
 
 
@@ -167,10 +188,19 @@ class GeometryDiff(Base):
     )
 
     __table_args__ = (
+        # Basic indexes
         Index("idx_geometry_diffs_dataset", "dataset_id"),
         Index("idx_geometry_diffs_type", "diff_type"),
         Index("idx_geometry_diffs_status", "status"),
         Index("idx_geometry_diffs_created", "created_at"),
+        
+        # Performance indexes based on ChatGPT feedback
+        Index("idx_geometry_diffs_dataset_status", "dataset_id", "status"),
+        Index("idx_geometry_diffs_new_snapshot", "new_snapshot_id"),
+        Index("idx_geometry_diffs_old_snapshot", "old_snapshot_id"),
+        
+        # Composite indexes for common query patterns
+        Index("idx_geometry_diffs_dataset_type_status", "dataset_id", "diff_type", "status"),
     )
 
 
@@ -194,9 +224,19 @@ class SpatialCheck(Base):
     )
 
     __table_args__ = (
+        # Basic indexes
         Index("idx_spatial_checks_dataset", "dataset_id"),
         Index("idx_spatial_checks_type", "check_type"),
         Index("idx_spatial_checks_result", "check_result"),
+        
+        # Performance indexes based on ChatGPT feedback
+        Index("idx_spatial_checks_snapshot", "snapshot_id"),
+        Index("idx_spatial_checks_created", "created_at"),
+        Index("idx_spatial_checks_dataset_type", "dataset_id", "check_type"),
+        
+        # Composite indexes for quality check reporting queries
+        Index("idx_spatial_checks_dataset_result_type", "dataset_id", "check_result", "check_type"),
+        Index("idx_spatial_checks_dataset_snapshot", "dataset_id", "snapshot_id"),
     )
 
 
