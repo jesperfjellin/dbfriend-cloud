@@ -217,4 +217,76 @@ export async function getGeometryContext(
   }
   
   return response.json()
+}
+
+// ============================================================================
+// MONITORING API
+// ============================================================================
+
+export interface DatasetMonitoringStatus {
+  dataset_id: string
+  dataset_name: string
+  connection_status: string
+  snapshots_complete: boolean
+  snapshot_count: number
+  last_change_check?: string
+  last_quality_check?: string
+  quality_check_status: string
+  pending_diffs: number
+}
+
+export interface QualityCheckProgress {
+  current: number
+  total: number
+  phase: string
+  percentage?: number
+}
+
+export interface QualityCheckStatus {
+  dataset_id: string
+  dataset_name: string
+  status: string // "idle", "running", "completed", "failed"
+  snapshot_count: number
+  snapshots_complete: boolean
+  last_check_at?: string
+  check_results?: Record<string, number>
+  error_message?: string
+  progress?: QualityCheckProgress
+}
+
+// Monitoring API functions
+export const monitoringApi = {
+  // GET /api/v1/monitoring/datasets/status - get monitoring status for all datasets
+  getDatasetsStatus: async (): Promise<DatasetMonitoringStatus[]> => {
+    return apiRequest<DatasetMonitoringStatus[]>('/monitoring/datasets/status')
+  },
+
+  // POST /api/v1/monitoring/datasets/{id}/quality-checks/start - start quality checks
+  startQualityChecks: async (datasetId: string): Promise<{
+    status: string
+    message: string
+    dataset_id: string
+  }> => {
+    return apiRequest(`/monitoring/datasets/${datasetId}/quality-checks/start`, {
+      method: 'POST'
+    })
+  },
+
+  // GET /api/v1/monitoring/datasets/{id}/quality-checks/status - get quality check status
+  getQualityCheckStatus: async (datasetId: string): Promise<QualityCheckStatus> => {
+    return apiRequest<QualityCheckStatus>(`/monitoring/datasets/${datasetId}/quality-checks/status`)
+  },
+
+  // GET /api/v1/monitoring/health - system health check
+  getHealth: async (): Promise<{
+    status: string
+    metrics: {
+      active_datasets: number
+      total_snapshots: number
+      pending_diffs: number
+      failed_checks: number
+    }
+  }> => {
+    return apiRequest('/monitoring/health')
+  },
 } 

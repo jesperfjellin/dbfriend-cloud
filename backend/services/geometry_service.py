@@ -642,7 +642,7 @@ class GeometryService:
         # Ensure confidence stays within bounds
         return max(0.0, min(1.0, confidence))
     
-    async def run_quality_checks(self, dataset: Dataset) -> Dict[str, int]:
+    async def run_quality_checks(self, dataset: Dataset, progress_callback=None) -> Dict[str, int]:
         """
         Separate workflow for running quality checks on existing data.
         This runs on a different timer (hourly) and populates SpatialCheck table.
@@ -696,6 +696,11 @@ class GeometryService:
                 """
                 
                 external_rows = await external_conn.fetch(quality_query)
+                total_rows = len(external_rows)
+                
+                # Update progress with total count
+                if progress_callback:
+                    progress_callback(0, total_rows, "starting quality checks")
                 
                 check_results = {
                     "validity_checks": 0,
@@ -705,7 +710,7 @@ class GeometryService:
                     "failed_checks": 0
                 }
                 
-                for row in external_rows:
+                for i, row in enumerate(external_rows):
                     # Get or create snapshot for this geometry
                     geometry_hash = hashlib.md5(row['geometry_wkb']).hexdigest()
                     
@@ -738,6 +743,10 @@ class GeometryService:
                         
                         if check.check_result == "FAIL":
                             check_results["failed_checks"] += 1
+                    
+                    # Update progress every 100 rows or on last row
+                    if progress_callback and (i % 100 == 0 or i == total_rows - 1):
+                        progress_callback(i + 1, total_rows, f"processed {i + 1} geometries")
                 
                 await self.db.commit()
                 

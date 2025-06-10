@@ -66,7 +66,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configure CORS
+# Configure CORS with debug logging
+logger.info(f"[cyan]🌐 CORS enabled for origins: {settings.ALLOWED_ORIGINS}[/cyan]")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
@@ -87,6 +88,15 @@ async def root():
         "version": "0.1.0",
         "description": "SaaS for geometry-diff QA on PostGIS",
         "docs": "/api/docs"
+    }
+
+@app.get("/api/test")
+async def api_test():
+    """Simple test endpoint to verify API is accessible."""
+    return {
+        "status": "ok",
+        "message": "API is working",
+        "cors_origins": settings.ALLOWED_ORIGINS
     }
 
 
