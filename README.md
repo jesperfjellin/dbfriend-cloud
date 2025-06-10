@@ -1,8 +1,8 @@
-# dbfriend-cloud 🌍
+# dbfriend-cloud
 
 **Topology Watchdog for PostGIS** - An automated geometry quality monitoring framework
 
-> **Development Status**: This is an active development framework. APIs and features are evolving.
+**Development Status**: This is an active development framework. APIs and features are evolving.
 
 ## What is dbfriend-cloud?
 
@@ -28,7 +28,7 @@ dbfriend-cloud monitors your PostGIS databases for geometry quality issues and c
 - Side-by-side diff visualization
 
 **Performance Optimized**
-- Handles large datasets (tested with 350k+ geometries)
+- Handles large datasets (tested with 2m+ geometries)
 - Efficient hash-based change detection
 - Smart indexing for fast queries
 
@@ -53,7 +53,12 @@ cd backend
 pip install -r requirements.txt
 python _reset_db.py  # Initialize database
 python main.py       # Start FastAPI server
-```
+
+### Worker Setup
+```bash
+cd backend
+python worker_dev.py
+
 
 ### Frontend Setup
 ```bash
