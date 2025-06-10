@@ -107,7 +107,7 @@ class Dataset(Base):
         Index("idx_datasets_host", "host"),
         Index("idx_datasets_connection_status", "connection_status"),
         
-        # Performance indexes based on ChatGPT feedback
+        # Performance indexes
         Index("idx_datasets_last_check", "last_check_at"),
         Index("idx_datasets_active_status", "is_active", "connection_status"),
         
@@ -148,7 +148,7 @@ class GeometrySnapshot(Base):
         Index("idx_geometry_snapshots_geom_hash", "geometry_hash"),
         Index("idx_geometry_snapshots_composite_hash", "composite_hash"),
         
-        # Performance indexes based on ChatGPT feedback - critical for avoiding seq scans
+        # Performance indexes - critical for avoiding seq scans
         Index("idx_geometry_snapshots_dataset_geom_hash", "dataset_id", "geometry_hash"),
         Index("idx_geometry_snapshots_dataset_composite", "dataset_id", "composite_hash"),
         Index("idx_geometry_snapshots_dataset_created", "dataset_id", "created_at"),
@@ -194,7 +194,7 @@ class GeometryDiff(Base):
         Index("idx_geometry_diffs_status", "status"),
         Index("idx_geometry_diffs_created", "created_at"),
         
-        # Performance indexes based on ChatGPT feedback
+        # Performance indexes
         Index("idx_geometry_diffs_dataset_status", "dataset_id", "status"),
         Index("idx_geometry_diffs_new_snapshot", "new_snapshot_id"),
         Index("idx_geometry_diffs_old_snapshot", "old_snapshot_id"),
@@ -229,7 +229,7 @@ class SpatialCheck(Base):
         Index("idx_spatial_checks_type", "check_type"),
         Index("idx_spatial_checks_result", "check_result"),
         
-        # Performance indexes based on ChatGPT feedback
+        # Performance indexes
         Index("idx_spatial_checks_snapshot", "snapshot_id"),
         Index("idx_spatial_checks_created", "created_at"),
         Index("idx_spatial_checks_dataset_type", "dataset_id", "check_type"),

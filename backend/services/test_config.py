@@ -3,8 +3,6 @@ Spatial Tests Configuration
 
 This file contains configuration for all spatial quality tests.
 Easy to modify test behavior, enable/disable tests, and set thresholds.
-
-Based on ChatGPT feedback: All numeric thresholds externalized for easy tuning.
 """
 
 from typing import Dict, Any, Optional
@@ -164,7 +162,7 @@ class TestConfig:
     }
     
     # ============================================================================
-    # UNIT SCALING (Per ChatGPT feedback on SRID/units)
+    # UNIT SCALING
     # ============================================================================
     
     UNIT_SCALING = {
