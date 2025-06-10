@@ -142,10 +142,10 @@ export default function TestsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-[calc(100vh-4rem-2px)] bg-gray-50 flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-full mx-auto px-6 py-4">
+      <header className="bg-white flex-shrink-0" style={{ borderBottom: '1px solid rgb(229 231 235)', boxSizing: 'border-box' }}>
+        <div className="w-full px-4 py-4">
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">
@@ -194,10 +194,10 @@ export default function TestsPage() {
       </header>
 
       {/* Main Content - Sidebar + Map */}
-      <div className="flex h-[calc(100vh-120px)]">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         
         {/* Left Sidebar - Tests List */}
-        <div className="w-96 bg-white border-r border-gray-200 flex flex-col">
+        <div className="w-80 bg-white border-r border-gray-200 flex flex-col flex-shrink-0">
           
           {/* Sidebar Header */}
           <div className="p-4 border-b border-gray-200 flex-shrink-0">
@@ -297,11 +297,13 @@ export default function TestsPage() {
         </div>
 
         {/* Right Side - Map */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative min-w-0">
           {selectedTest ? (
             <>
               <TestMap
                 className="h-full"
+                geometry={geometryData?.geometry}
+                highlightError={selectedTest.check_result === 'FAIL'}
               />
               
               {/* Map Overlay - Test Details */}

@@ -12,10 +12,10 @@ const nextConfig = {
   
   // Configure webpack for map libraries
   webpack: (config) => {
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      // Fix for maplibre-gl
-      'maplibre-gl': 'maplibre-gl/dist/maplibre-gl.js',
+    // OpenLayers configuration
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
     }
     return config
   },

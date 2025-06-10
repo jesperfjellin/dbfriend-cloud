@@ -8,11 +8,11 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
-/* MapLibre GL CSS will be imported in layout.tsx */
+/* OpenLayers CSS is imported in the map components */
 
 /* Custom map styles */
-.maplibre-map {
+.ol-map {
   width: 100%;
-  height: 400px;
+  height: 100%;
   border-radius: 0.5rem;
 } 

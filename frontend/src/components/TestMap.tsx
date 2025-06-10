@@ -8,46 +8,60 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import maplibregl from 'maplibre-gl'
+import 'ol/ol.css'
+import { Map as OLMap, View } from 'ol'
+import { Tile as TileLayer, Vector as VectorLayer } from 'ol/layer'
+import { OSM } from 'ol/source'
+import { Vector as VectorSource } from 'ol/source'
+import { GeoJSON } from 'ol/format'
+import { Style, Fill, Stroke, Circle } from 'ol/style'
+import { defaults as defaultControls } from 'ol/control'
+import { fromLonLat } from 'ol/proj'
+import Feature from 'ol/Feature'
+import Geometry from 'ol/geom/Geometry'
 
 interface TestMapProps {
   className?: string
+  geometry?: any // GeoJSON geometry to display
+  highlightError?: boolean // Whether to highlight as error (red) or normal (blue)
 }
 
-export default function TestMap({ className = '' }: TestMapProps) {
-  const mapContainer = useRef<HTMLDivElement>(null)
-  const map = useRef<maplibregl.Map | null>(null)
+export default function TestMap({ className = '', geometry, highlightError = true }: TestMapProps) {
+  const mapRef = useRef<HTMLDivElement>(null)
+  const mapInstance = useRef<OLMap | null>(null)
+  const geometryLayerRef = useRef<VectorLayer<any> | null>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!mapContainer.current || map.current) return
+    if (!mapRef.current || mapInstance.current) return
 
     try {
-      console.log('Initializing MapLibre GL map...')
+      console.log('Initializing OpenLayers map...')
       
-      map.current = new maplibregl.Map({
-        container: mapContainer.current,
-        style: {
-          version: 8,
-          sources: {},
-          layers: []
-        },
-        center: [-122.4194, 37.7749], // San Francisco
-        zoom: 9,
-        antialias: true
+      const map = new OLMap({
+        target: mapRef.current,
+        layers: [
+          // Base tile layer (OpenStreetMap)
+          new TileLayer({
+            source: new OSM(),
+          }),
+        ],
+        view: new View({
+          center: fromLonLat([-122.4194, 37.7749]), // San Francisco
+          zoom: 9,
+        }),
+        controls: defaultControls(),
       })
 
-      map.current.on('load', () => {
-        console.log('Map loaded successfully')
+      mapInstance.current = map
+
+      // Set loaded state after a short delay to ensure map is ready
+      setTimeout(() => {
+        console.log('OpenLayers map loaded successfully')
         setMapLoaded(true)
         setError(null)
-      })
-
-      map.current.on('error', (e) => {
-        console.error('Map error:', e)
-        setError(`Map error: ${e.error?.message || 'Unknown error'}`)
-      })
+      }, 100)
 
     } catch (err) {
       console.error('Error initializing map:', err)
@@ -55,12 +69,75 @@ export default function TestMap({ className = '' }: TestMapProps) {
     }
 
     return () => {
-      if (map.current) {
-        map.current.remove()
-        map.current = null
+      if (mapInstance.current) {
+        mapInstance.current.setTarget(undefined)
+        mapInstance.current = null
       }
     }
   }, [])
+
+  // Update geometry when data changes
+  useEffect(() => {
+    if (!mapInstance.current || !geometry) return
+
+    const map = mapInstance.current
+
+    // Remove existing geometry layer
+    if (geometryLayerRef.current) {
+      map.removeLayer(geometryLayerRef.current)
+      geometryLayerRef.current = null
+    }
+
+    try {
+      // Create geometry source from GeoJSON
+      const geometrySource = new VectorSource({
+        features: new GeoJSON().readFeatures(geometry, {
+          featureProjection: 'EPSG:3857', // Web Mercator
+          dataProjection: 'EPSG:4326',    // WGS84
+        }),
+      })
+
+      // Create style based on error highlighting
+      const geometryStyle = new Style({
+        fill: new Fill({
+          color: highlightError 
+            ? 'rgba(239, 68, 68, 0.3)'   // Red for errors
+            : 'rgba(59, 130, 246, 0.3)', // Blue for normal
+        }),
+        stroke: new Stroke({
+          color: highlightError ? '#dc2626' : '#2563eb',
+          width: 2,
+        }),
+        image: new Circle({
+          radius: 6,
+          fill: new Fill({
+            color: highlightError ? '#dc2626' : '#2563eb',
+          }),
+        }),
+      })
+
+      const geometryLayer = new VectorLayer({
+        source: geometrySource,
+        style: geometryStyle,
+      })
+
+      map.addLayer(geometryLayer)
+      geometryLayerRef.current = geometryLayer
+
+      // Fit map to show the geometry
+      const extent = geometrySource.getExtent()
+      if (extent && !isNaN(extent[0])) {
+        map.getView().fit(extent, {
+          padding: [50, 50, 50, 50],
+          maxZoom: 18,
+        })
+      }
+
+    } catch (geometryError) {
+      console.error('Error adding geometry to map:', geometryError)
+      setError(`Failed to display geometry: ${geometryError instanceof Error ? geometryError.message : 'Unknown error'}`)
+    }
+  }, [geometry, highlightError])
 
   if (error) {
     return (
@@ -80,11 +157,9 @@ export default function TestMap({ className = '' }: TestMapProps) {
   return (
     <div className={`relative ${className}`}>
       <div 
-        ref={mapContainer} 
-        className="w-full h-96 bg-gray-100 rounded-lg"
+        ref={mapRef} 
+        className="w-full h-full bg-gray-100"
         style={{ 
-          minHeight: '400px',
-          // Add basic MapLibre styles inline to avoid import issues
           position: 'relative',
           overflow: 'hidden'
         }}
@@ -94,6 +169,19 @@ export default function TestMap({ className = '' }: TestMapProps) {
           <div className="text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
             <p className="mt-2 text-gray-600">Loading map...</p>
+          </div>
+        </div>
+      )}
+      
+      {/* Map legend/info */}
+      {geometry && mapLoaded && (
+        <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-3 text-sm">
+          <h3 className="font-semibold mb-2">Test Geometry</h3>
+          <div className="flex items-center">
+            <div className={`w-4 h-4 rounded mr-2 ${
+              highlightError ? 'bg-red-500 opacity-60' : 'bg-blue-500 opacity-60'
+            }`}></div>
+            <span>{highlightError ? 'Error Geometry' : 'Test Geometry'}</span>
           </div>
         </div>
       )}
