@@ -5,3 +5,5 @@ frontend/.next/
 backend/__pycache__/
 testdata/
 frontend/.env.local
+.env
+/backend/.env
