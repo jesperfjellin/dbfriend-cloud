@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-_reset_db.py – dev helper to blow away the schema and rebuild it
-after model changes.
+_reset_db.py – dev helper to quickly clear data and reset schema
+Uses TRUNCATE for fast reset with large datasets.
 """
 
 import asyncio
@@ -11,30 +11,9 @@ from database import engine, Base, _apply_postgres_optimizations
 
 
 async def reset_database_completely() -> None:
-    # ── DROP phase ──────────────────────────────────────────────
+    # ── ENSURE TABLES EXIST phase ──────────────────────────────────
     async with engine.begin() as conn:
-        print("🗑️  Dropping existing objects …")
-
-        # drop the old faulty table if it exists
-        await conn.execute(text("DROP TABLE IF EXISTS geometry_snapshots CASCADE"))
-        await conn.execute(text("DROP TABLE IF EXISTS geometry_diffs CASCADE"))
-        await conn.execute(text("DROP TABLE IF EXISTS spatial_checks CASCADE"))
-        await conn.execute(text("DROP TABLE IF EXISTS datasets CASCADE"))
-
-        # clean geometry_columns view (harmless if nothing there)
-        await conn.execute(
-            text(
-                "DELETE FROM geometry_columns "
-                "WHERE f_table_name IN ('geometry_snapshots','geometry_diffs')"
-            )
-        )
-
-        # ensure everything else is gone (good for dev)
-        await conn.run_sync(Base.metadata.drop_all)
-
-    # ── CREATE phase ────────────────────────────────────────────
-    async with engine.begin() as conn:
-        print("🏗️  Enabling PostGIS and creating fresh tables …")
+        print("🏗️  Ensuring PostGIS and tables exist …")
         
         # Ensure PostGIS extension is enabled first
         try:
@@ -44,10 +23,10 @@ async def reset_database_completely() -> None:
             print(f"❌ Could not enable PostGIS extension: {exc}")
             raise RuntimeError("PostGIS extension is required but could not be enabled") from exc
         
-        # Create all tables
+        # Ensure all tables exist (create if missing)
         try:
             await conn.run_sync(Base.metadata.create_all)
-            print("✓ Tables created successfully")
+            print("✓ Tables ensured (created if missing)")
             
             # Add geometry column manually without typmod restrictions (if not already created by SQLAlchemy)
             print("🔗 Ensuring mixed-dimension geometry column...")
@@ -84,10 +63,32 @@ async def reset_database_completely() -> None:
             print("✓ Geometry index created")
             
         except Exception as exc:
-            print(f"❌ Error creating tables: {exc}")
+            print(f"❌ Error ensuring tables: {exc}")
             raise
 
-    # Apply optimizations in a separate transaction (optional, won't fail reset)
+    # ── FAST TRUNCATE phase ────────────────────────────────────────
+    async with engine.begin() as conn:
+        print("🧹 Fast data clearing with TRUNCATE …")
+
+        try:
+            # TRUNCATE all data tables at once - much faster than DROP
+            # RESTART IDENTITY resets any auto-increment sequences
+            # CASCADE handles foreign key dependencies automatically
+            await conn.execute(text("""
+                TRUNCATE TABLE spatial_checks, geometry_diffs, geometry_snapshots 
+                RESTART IDENTITY CASCADE
+            """))
+            print("✓ All monitoring data cleared instantly")
+
+            # Optionally clear datasets table (uncomment if you want to reset connections too)
+            # await conn.execute(text("TRUNCATE TABLE datasets RESTART IDENTITY CASCADE"))
+            # print("✓ Dataset connections cleared")
+
+        except Exception as exc:
+            print(f"❌ Error truncating tables: {exc}")
+            raise
+
+    # ── OPTIMIZATION phase ──────────────────────────────────────────
     try:
         async with engine.begin() as conn:
             await _apply_postgres_optimizations(conn)
@@ -95,7 +96,8 @@ async def reset_database_completely() -> None:
     except Exception as exc:
         print(f"⚠️  Storage optimizations failed (non-critical): {exc}")
 
-    print("✅  Database completely reset and ready")
+    print("✅ Database reset complete - tables preserved, data cleared instantly")
+    print("💡 Pro tip: TRUNCATE is much faster than DROP for large datasets!")
 
 
 def main() -> None:
